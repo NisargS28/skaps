@@ -184,3 +184,35 @@ async def send_chat_message(
         "attachments": saved_attachments,
     }
 
+@router.delete("/history/{user_id}")
+def clear_chat_history(user_id: int, db: Session = Depends(get_db)):
+    """Clear all chat history for a user."""
+    sessions = db.query(ChatSession).filter(ChatSession.user_id == user_id).all()
+    for session in sessions:
+        db.delete(session)
+    db.commit()
+    return {"message": "Chat history cleared successfully"}
+
+class ChatSessionUpdate(BaseModel):
+    title: str
+
+@router.put("/sessions/{session_id}", response_model=ChatSessionResponse)
+def update_chat_session(session_id: int, session_update: ChatSessionUpdate, db: Session = Depends(get_db)):
+    db_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    db_session.title = session_update.title
+    db.commit()
+    db.refresh(db_session)
+    return db_session
+
+@router.delete("/sessions/{session_id}")
+def delete_chat_session(session_id: int, db: Session = Depends(get_db)):
+    db_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    db.delete(db_session)
+    db.commit()
+    return {"message": "Session deleted successfully"}

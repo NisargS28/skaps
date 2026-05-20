@@ -6,6 +6,7 @@ import { isAuthenticated, getUser } from '@/lib/auth';
 import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import ChatWindow from '@/components/ChatWindow';
+import SettingsModal from '@/components/SettingsModal';
 
 interface Attachment {
   id: string | number;
@@ -30,6 +31,7 @@ interface ChatSession {
 export default function Home() {
   const [activeWorkspace, setActiveWorkspace] = useState("HR");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   
@@ -90,6 +92,37 @@ export default function Home() {
   }, [activeSessionId]);
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+
+  const handleRenameSession = async (id: number, newTitle: string) => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/chat/sessions/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle })
+      });
+      if (res.ok) {
+        setSessions(prev => prev.map(s => s.id === id ? { ...s, title: newTitle } : s));
+      }
+    } catch (e) {
+      console.error("Error renaming session", e);
+    }
+  };
+
+  const handleDeleteSession = async (id: number) => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/chat/sessions/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setSessions(prev => prev.filter(s => s.id !== id));
+        if (activeSessionId === id) {
+          setActiveSessionId(null);
+        }
+      }
+    } catch (e) {
+      console.error("Error deleting session", e);
+    }
+  };
 
   const handleSendMessage = async (text: string, files: File[] = []) => {
     if (!userId) return;
@@ -195,6 +228,8 @@ export default function Home() {
         sessions={sessions}
         activeSessionId={activeSessionId}
         onSelectSession={setActiveSessionId}
+        onRenameSession={handleRenameSession}
+        onDeleteSession={handleDeleteSession}
       />
       
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
@@ -202,6 +237,7 @@ export default function Home() {
           activeWorkspace={activeWorkspace} 
           setActiveWorkspace={setActiveWorkspace}
           toggleSidebar={toggleSidebar}
+          openSettings={() => setSettingsOpen(true)}
         />
         
         <main className="flex-1 overflow-hidden flex flex-col relative">
@@ -213,6 +249,12 @@ export default function Home() {
           />
         </main>
       </div>
+
+      <SettingsModal 
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        userId={userId}
+      />
     </div>
   );
 }

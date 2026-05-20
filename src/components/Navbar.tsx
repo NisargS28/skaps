@@ -1,7 +1,6 @@
 "use client";
 
-import { User, ChevronDown, Menu, LogOut, Settings } from 'lucide-react';
-import { ThemeToggle } from './ThemeToggle';
+import { User, ChevronDown, Menu, LogOut, Settings, LayoutDashboard } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { getUser, logout } from '@/lib/auth';
@@ -10,18 +9,19 @@ interface NavbarProps {
   activeWorkspace: string;
   setActiveWorkspace: (workspace: string) => void;
   toggleSidebar: () => void;
+  openSettings: () => void;
 }
 
 const workspaces = ["HR", "Finance", "Exim", "IT"];
 
-export default function Navbar({ activeWorkspace, setActiveWorkspace, toggleSidebar }: NavbarProps) {
+export default function Navbar({ activeWorkspace, setActiveWorkspace, toggleSidebar, openSettings }: NavbarProps) {
   const router = useRouter();
-  const [user, setUser] = useState<{name: string, email: string} | null>(null);
+  const [user, setUser] = useState<{name: string, email: string, role: string} | null>(null);
 
   useEffect(() => {
     const authUser = getUser();
     if (authUser) {
-      setUser({ name: authUser.name, email: authUser.email });
+      setUser({ name: authUser.name, email: authUser.email, role: authUser.role });
     }
   }, []);
 
@@ -52,7 +52,6 @@ export default function Navbar({ activeWorkspace, setActiveWorkspace, toggleSide
             ))}
           </div>
         </div>
-        <ThemeToggle />
         
         <div className="relative group">
           <button className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-600 dark:text-blue-400 hover:ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-gray-900 transition-all">
@@ -72,10 +71,23 @@ export default function Navbar({ activeWorkspace, setActiveWorkspace, toggleSide
               <User className="w-4 h-4 text-gray-500" />
               My Profile
             </button>
-            <button className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            <button 
+              onClick={openSettings}
+              className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
               <Settings className="w-4 h-4 text-gray-500" />
               Settings
             </button>
+
+            {user?.role === 'admin' && (
+              <button 
+                onClick={() => router.push('/admin')}
+                className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <LayoutDashboard className="w-4 h-4 text-gray-500" />
+                Admin Dashboard
+              </button>
+            )}
             
             <div className="h-px bg-gray-100 dark:bg-gray-800 my-1"></div>
             

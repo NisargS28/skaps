@@ -1,0 +1,70 @@
+# Schema Comparison: db.sql vs db_admin.sql
+
+## Existing Tables — Columns Being Added
+
+### `users`
+| Column | Type | Status |
+|---|---|---|
+| id, name, email, department, role, created_at | — | ✅ Already exists |
+| `status` | VARCHAR(30) DEFAULT 'active' | 🆕 **ADD** |
+| `last_login_at` | TIMESTAMP | 🆕 **ADD** |
+| `updated_at` | TIMESTAMP DEFAULT CURRENT_TIMESTAMP | 🆕 **ADD** |
+
+### `chat_messages`
+| Column | Type | Status |
+|---|---|---|
+| id, session_id, role, content, sources, created_at | — | ✅ Already exists |
+| `prompt_tokens` | INT DEFAULT 0 | 🆕 **ADD** |
+| `completion_tokens` | INT DEFAULT 0 | 🆕 **ADD** |
+| `total_tokens` | INT DEFAULT 0 | 🆕 **ADD** |
+| `response_time_ms` | INT DEFAULT 0 | 🆕 **ADD** |
+| `status` | VARCHAR(30) DEFAULT 'success' | 🆕 **ADD** |
+
+### `chat_sessions`
+| Column | Type | Status |
+|---|---|---|
+| id, user_id, workspace, title, created_at | — | ✅ Already exists |
+| `ip_address` | VARCHAR(100) | 🆕 **ADD** |
+| `updated_at` | TIMESTAMP DEFAULT CURRENT_TIMESTAMP | 🆕 **ADD** |
+
+> [!NOTE]
+> The `workspace` column stays as VARCHAR(50) for now. The admin.md spec suggests `workspace_id INT REFERENCES workspaces(id)`, but migrating this would break existing chat data. This can be done later with a data migration script.
+
+### `chat_attachments`
+| Column | Type | Status |
+|---|---|---|
+| id, message_id, file_name, original_file_name, file_path, file_size, file_type, extracted_text, upload_status, created_at | — | ✅ Already exists |
+| `session_id` | INT REFERENCES chat_sessions(id) | 🆕 **ADD** |
+| `user_id` | INT REFERENCES users(id) | 🆕 **ADD** |
+
+### `documents` (existing but limited)
+
+> [!WARNING]
+> The existing `documents` table has a basic schema. The new `db_admin.sql` redefines it with `workspace_id`, `embedding_status`, `chunk_count`, and `updated_at`. Since `CREATE TABLE IF NOT EXISTS` won't alter an existing table, you will need to **either**:
+> - Drop and recreate if no production data exists
+> - Or run manual ALTER statements to add the missing columns
+
+---
+
+## Brand New Tables
+
+| Table | Purpose |
+|---|---|
+| `workspaces` | Named knowledge domains (HR, Finance, Exim, IT) with status tracking |
+| `document_chunks` | RAG vector embedding chunks linked to documents |
+| `user_settings` | Per-user preferences (theme, font, toggles) |
+| `system_settings` | Global app config as key-value pairs |
+| `audit_logs` | Admin activity tracking (logins, uploads, config changes) |
+| `analytics_daily_summary` | Pre-aggregated daily metrics per workspace |
+
+---
+
+## Action Required in Database
+
+To apply, run in your PostgreSQL:
+
+```bash
+psql -U your_user -d your_db -f backend/db_admin.sql
+```
+
+Or execute the SQL manually in pgAdmin/DBeaver.

@@ -3,8 +3,8 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
-from app.models import user, chat
-from app.routes import users, chat as chat_routes
+from app.models import user, chat, settings
+from app.routes import users, chat as chat_routes, settings as settings_routes
 import os
 from fastapi.staticfiles import StaticFiles
 
@@ -26,6 +26,7 @@ app.add_middleware(
 
 app.include_router(users.router, prefix="/api")
 app.include_router(chat_routes.router, prefix="/api")
+app.include_router(settings_routes.router, prefix="/api")
 
 app.mount("/uploads", StaticFiles(directory=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "uploads")), name="uploads")
 
