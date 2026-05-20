@@ -7,10 +7,17 @@ import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import ChatWindow from '@/components/ChatWindow';
 
+interface Attachment {
+  id: string | number;
+  original_file_name: string;
+  file_path: string;
+}
+
 interface Message {
   id: string;
   role: "user" | "bot";
   text: string;
+  attachments?: Attachment[];
 }
 
 interface ChatSession {
@@ -70,7 +77,8 @@ export default function Home() {
           setMessages(data.map((m: any) => ({
             id: m.id.toString(),
             role: m.role,
-            text: m.content
+            text: m.content,
+            attachments: m.attachments || []
           })));
         })
         .catch(err => {
@@ -83,7 +91,7 @@ export default function Home() {
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
-  const handleSendMessage = async (text: string) => {
+  const handleSendMessage = async (text: string, files: File[] = []) => {
     if (!userId) return;
 
     try {
@@ -102,15 +110,45 @@ export default function Home() {
       }
 
       const tempUserId = Date.now().toString();
-      setMessages(prev => [...prev, { id: tempUserId, role: "user", text }]);
+      // Optimistically add message with local file objects mapped to the Attachment interface format
+      const tempAttachments = files.map((f, i) => ({
+        id: `temp-${i}`,
+        original_file_name: f.name,
+        file_path: ''
+      }));
+      setMessages(prev => [...prev, { id: tempUserId, role: "user", text, attachments: tempAttachments }]);
       setIsLoading(true);
 
-      const userMsgRes = await fetch(`http://localhost:8000/api/chat/sessions/${currentSessionId}/messages`, {
+      // Build FormData for the new /chat/send endpoint
+      const formData = new FormData();
+      formData.append("session_id", String(currentSessionId));
+      formData.append("message", text);
+      for (const file of files) {
+        formData.append("files", file);
+      }
+
+      const userMsgRes = await fetch(`http://localhost:8000/api/chat/send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: "user", content: text })
+        body: formData,
       });
-      if (!userMsgRes.ok) throw new Error("Failed to send message");
+      if (!userMsgRes.ok) {
+        const errData = await userMsgRes.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to send message");
+      }
+      
+      const realMessageData = await userMsgRes.json();
+      
+      // Update the temp message with real data from backend
+      setMessages(prev => prev.map(m => 
+        m.id === tempUserId 
+          ? { 
+              id: realMessageData.message.id.toString(), 
+              role: "user", 
+              text: realMessageData.message.content,
+              attachments: realMessageData.attachments || []
+            } 
+          : m
+      ));
 
       if (!activeSessionId) loadSessions();
 

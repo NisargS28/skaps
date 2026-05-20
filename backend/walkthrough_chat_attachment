@@ -1,0 +1,62 @@
+# Walkthrough — Chat Attachment Support
+
+## Summary
+
+Implemented end-to-end chat attachment support allowing users to upload multiple files (pdf, docx, txt, xlsx, png, jpg, jpeg) alongside chat messages. Files are saved to disk, recorded in the database, and linked to the user message.
+
+## Files Modified
+
+### Backend
+
+| File | Change |
+|---|---|
+| [models/chat.py](file:///d:/Nisarg.Doc/Skaps/chatbot/backend/app/models/chat.py) | Added `ChatAttachment` SQLAlchemy model + bidirectional relationship on `ChatMessage.attachments` |
+| [routes/chat.py](file:///d:/Nisarg.Doc/Skaps/chatbot/backend/app/routes/chat.py) | Added `POST /api/chat/send` endpoint — multipart/form-data with file validation, UUID naming, disk storage, and DB linking |
+| [main.py](file:///d:/Nisarg.Doc/Skaps/chatbot/backend/app/main.py) | Added `os.makedirs` for `uploads/chat_attachments/` at startup |
+
+**Dependency installed:** `python-multipart` (required by FastAPI for `Form()` and `File()`)
+
+### Frontend
+
+| File | Change |
+|---|---|
+| [ChatInput.tsx](file:///d:/Nisarg.Doc/Skaps/chatbot/src/components/ChatInput.tsx) | Multi-file selector with `accept` filter, removable file chips UI, updated `onSendMessage(text, files)` signature |
+| [ChatWindow.tsx](file:///d:/Nisarg.Doc/Skaps/chatbot/src/components/ChatWindow.tsx) | Updated `onSendMessage` prop type to `(text: string, files: File[]) => void` |
+| [page.tsx](file:///d:/Nisarg.Doc/Skaps/chatbot/src/app/page.tsx) | `handleSendMessage` now builds `FormData` and POSTs to `/api/chat/send` instead of the old JSON endpoint |
+
+## How It Works
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant Backend
+    participant DB
+    participant Disk
+
+    User->>Frontend: Type message + attach files
+    Frontend->>Backend: POST /api/chat/send (FormData)
+    Backend->>DB: INSERT chat_messages → get message_id
+    loop Each file
+        Backend->>Backend: Validate extension
+        Backend->>Disk: Save to uploads/chat_attachments/{uuid}_{name}
+        Backend->>DB: INSERT chat_attachments (linked by message_id)
+    end
+    Backend->>Frontend: { message, attachments[] }
+    Frontend->>User: Show message in chat
+```
+
+## What's NOT Changed
+
+- All existing endpoints (`POST /sessions`, `GET /sessions/{user_id}`, `GET /sessions/{id}/messages`, `POST /sessions/{id}/messages`) remain intact
+- Bot mock-response still uses the old JSON endpoint (bots don't have attachments)
+- No RAG or vector DB integration
+- Suggestion buttons still work (they pass no files, which defaults to `[]`)
+
+## Verification
+
+- Backend should auto-reload with uvicorn (if it doesn't, restart with `uvicorn app.main:app --reload`)
+- Frontend auto-reloads with Next.js dev server
+- Test by clicking the paperclip icon, selecting files, and sending a message
+- Files will appear in `backend/uploads/chat_attachments/`
+- Check `chat_attachments` table in PostgreSQL for new records

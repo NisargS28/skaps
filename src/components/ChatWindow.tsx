@@ -3,16 +3,23 @@ import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import { Bot } from 'lucide-react';
 
+interface Attachment {
+  id: string | number;
+  original_file_name: string;
+  file_path: string;
+}
+
 interface Message {
   id: string;
   role: "user" | "bot";
   text: string;
+  attachments?: Attachment[];
 }
 
 interface ChatWindowProps {
   messages: Message[];
   isLoading: boolean;
-  onSendMessage: (text: string) => void;
+  onSendMessage: (text: string, files: File[]) => void;
   activeWorkspace: string;
 }
 

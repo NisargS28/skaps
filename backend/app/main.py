@@ -5,8 +5,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
 from app.models import user, chat
 from app.routes import users, chat as chat_routes
+import os
+from fastapi.staticfiles import StaticFiles
 
 Base.metadata.create_all(bind=engine)
+
+# Ensure upload directories exist
+os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "uploads", "chat_attachments"), exist_ok=True)
 
 app = FastAPI(title="SKAPS AI Backend", version="1.0.0")
 
@@ -21,6 +26,8 @@ app.add_middleware(
 
 app.include_router(users.router, prefix="/api")
 app.include_router(chat_routes.router, prefix="/api")
+
+app.mount("/uploads", StaticFiles(directory=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "uploads")), name="uploads")
 
 @app.get("/")
 def home():

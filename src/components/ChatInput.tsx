@@ -1,13 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, Paperclip } from 'lucide-react';
+import { Send, Sparkles, Paperclip, X } from 'lucide-react';
+
+const ACCEPTED_TYPES = ".pdf,.docx,.txt,.xlsx,.png,.jpg,.jpeg";
 
 interface ChatInputProps {
-  onSendMessage: (text: string) => void;
+  onSendMessage: (text: string, files: File[]) => void;
   isLoading: boolean;
 }
 
 export default function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
   const [text, setText] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -20,8 +23,11 @@ export default function ChatInput({ onSendMessage, isLoading }: ChatInputProps) 
 
   const handleSubmit = () => {
     if (text.trim() && !isLoading) {
-      onSendMessage(text.trim());
+      onSendMessage(text.trim(), selectedFiles);
       setText('');
+      setSelectedFiles([]);
+      // Reset file input so re-selecting the same file works
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -32,8 +38,44 @@ export default function ChatInput({ onSendMessage, isLoading }: ChatInputProps) 
     }
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files);
+      setSelectedFiles(prev => [...prev, ...newFiles]);
+    }
+    // Reset so re-selecting the same file triggers onChange again
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
   return (
     <div className="relative w-full">
+      {/* Selected files chips */}
+      {selectedFiles.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-2 px-1">
+          {selectedFiles.map((file, index) => (
+            <div
+              key={`${file.name}-${index}`}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-300 max-w-[200px]"
+            >
+              <Paperclip className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate" title={file.name}>{file.name}</span>
+              <button
+                type="button"
+                onClick={() => removeFile(index)}
+                className="ml-0.5 p-0.5 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors shrink-0"
+                title="Remove file"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="flex items-end w-full border dark:border-gray-700 bg-white dark:bg-gray-900 rounded-2xl shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all p-2 gap-2">
         <button
           type="button"
@@ -46,12 +88,10 @@ export default function ChatInput({ onSendMessage, isLoading }: ChatInputProps) 
         <input 
           type="file" 
           ref={fileInputRef} 
-          className="hidden" 
-          onChange={(e) => {
-            if (e.target.files && e.target.files.length > 0) {
-              console.log("File selected:", e.target.files[0].name);
-            }
-          }} 
+          className="hidden"
+          multiple
+          accept={ACCEPTED_TYPES}
+          onChange={handleFileChange}
         />
         <textarea
           ref={textareaRef}
