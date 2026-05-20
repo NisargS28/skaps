@@ -4,6 +4,7 @@ import { User, ChevronDown, Menu, LogOut, Settings } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import { getUser, logout } from '@/lib/auth';
 
 interface NavbarProps {
   activeWorkspace: string;
@@ -18,9 +19,9 @@ export default function Navbar({ activeWorkspace, setActiveWorkspace, toggleSide
   const [user, setUser] = useState<{name: string, email: string} | null>(null);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
+    const authUser = getUser();
+    if (authUser) {
+      setUser({ name: authUser.name, email: authUser.email });
     }
   }, []);
 
@@ -80,7 +81,7 @@ export default function Navbar({ activeWorkspace, setActiveWorkspace, toggleSide
             
             <button 
               onClick={() => {
-                localStorage.removeItem('user');
+                logout();
                 router.push('/login');
               }}
               className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"

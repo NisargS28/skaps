@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, User, Mail, Building, Briefcase, Camera } from 'lucide-react';
+import { isAuthenticated, getUser } from '@/lib/auth';
 
 interface UserData {
   id: string;
@@ -17,11 +18,16 @@ export default function ProfilePage() {
   const [user, setUser] = useState<UserData | null>(null);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    } else {
+    if (!isAuthenticated()) {
       router.push('/login');
+      return;
+    }
+    const authUser = getUser();
+    if (authUser) {
+      setUser({
+        ...authUser,
+        id: String(authUser.id)
+      });
     }
   }, [router]);
 

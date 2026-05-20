@@ -3,6 +3,8 @@
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { login } from '@/lib/api';
+import { setAuth } from '@/lib/auth';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,21 +19,14 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await fetch('http://localhost:8000/api/users/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || 'Login failed');
-      }
-
-      const data = await res.json();
-      localStorage.setItem('user', JSON.stringify(data.user));
+      const data = await login(email, password);
+      
+      // The backend should return access_token and user object
+      // If the backend just returns user, we can handle it safely
+      const token = data.access_token || data.token || 'dummy_token';
+      const user = data.user || data;
+      
+      setAuth(token, user);
 
       // Success - redirect
       router.push('/');

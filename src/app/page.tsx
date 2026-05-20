@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { isAuthenticated, getUser } from '@/lib/auth';
 import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import ChatWindow from '@/components/ChatWindow';
@@ -31,11 +32,13 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      setUserId(JSON.parse(storedUser).id);
-    } else {
+    if (!isAuthenticated()) {
       router.push('/login');
+      return;
+    }
+    const user = getUser();
+    if (user) {
+      setUserId(Number(user.id));
     }
   }, [router]);
 
