@@ -19,6 +19,9 @@ ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP;
 ALTER TABLE users
 ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS session_token TEXT;
+
 -- Chat Messages: add token tracking and response metrics
 ALTER TABLE chat_messages
 ADD COLUMN IF NOT EXISTS prompt_tokens INT DEFAULT 0;

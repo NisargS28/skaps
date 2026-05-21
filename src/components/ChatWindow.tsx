@@ -19,7 +19,7 @@ interface Message {
 interface ChatWindowProps {
   messages: Message[];
   isLoading: boolean;
-  onSendMessage: (text: string, files: File[]) => void;
+  onSendMessage: (text: string, files: File[], model: string) => void;
   activeWorkspace: string;
 }
 
@@ -58,7 +58,7 @@ export default function ChatWindow({ messages, isLoading, onSendMessage, activeW
                 {suggestions.map((suggestion, idx) => (
                   <button
                     key={idx}
-                    onClick={() => onSendMessage(suggestion)}
+                    onClick={() => onSendMessage(suggestion, [], 'gpt')}
                     className="p-4 border dark:border-gray-800 rounded-xl text-left hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors group"
                   >
                     <p className="font-medium text-gray-700 dark:text-gray-300 group-hover:text-blue-600 dark:group-hover:text-blue-400">{suggestion}</p>

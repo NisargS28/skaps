@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,12 +22,12 @@ export default function LoginPage() {
     try {
       const data = await login(email, password);
       
-      // The backend should return access_token and user object
-      // If the backend just returns user, we can handle it safely
+      // The backend returns access_token, session_id, and user object
       const token = data.access_token || data.token || 'dummy_token';
       const user = data.user || data;
+      const sessionId = data.session_id;
       
-      setAuth(token, user);
+      setAuth(token, user, rememberMe, sessionId);
 
       // Success - redirect
       router.push('/');
@@ -97,6 +98,20 @@ export default function LoginPage() {
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                 placeholder="••••••••"
               />
+            </div>
+
+            <div className="flex items-center">
+              <input
+                id="remember-me"
+                name="remember-me"
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              />
+              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900 dark:text-gray-300">
+                Remember me
+              </label>
             </div>
 
             <button 

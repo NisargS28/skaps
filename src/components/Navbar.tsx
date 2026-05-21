@@ -4,6 +4,7 @@ import { User, ChevronDown, Menu, LogOut, Settings, LayoutDashboard } from 'luci
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { getUser, logout } from '@/lib/auth';
+import { getWorkspaces, Workspace } from '@/lib/api';
 
 interface NavbarProps {
   activeWorkspace: string;
@@ -12,18 +13,54 @@ interface NavbarProps {
   openSettings: () => void;
 }
 
-const workspaces = ["HR", "Finance", "Exim", "IT"];
-
 export default function Navbar({ activeWorkspace, setActiveWorkspace, toggleSidebar, openSettings }: NavbarProps) {
   const router = useRouter();
   const [user, setUser] = useState<{name: string, email: string, role: string} | null>(null);
+  const [workspaces, setWorkspaces] = useState<string[]>(["HR"]);
 
   useEffect(() => {
     const authUser = getUser();
     if (authUser) {
       setUser({ name: authUser.name, email: authUser.email, role: authUser.role });
     }
-  }, []);
+    
+    const fetchWs = () => {
+      getWorkspaces()
+        .then(res => {
+          const activeWs = res.filter(w => w.status === 'active').map(w => w.name);
+          // Always update workspaces if we fetch them so it can become empty if no active workspaces exist
+          setWorkspaces(activeWs.length > 0 ? activeWs : []);
+          
+          if (activeWs.length > 0 && !activeWs.includes(activeWorkspace)) {
+            setActiveWorkspace(activeWs[0]);
+          } else if (activeWs.length === 0 && activeWorkspace !== "No Workspace") {
+            setActiveWorkspace("No Workspace");
+          }
+        })
+        .catch(console.error);
+    };
+
+    fetchWs();
+
+    // Listen to local events (if in same tab)
+    window.addEventListener('workspacesUpdated', fetchWs);
+    
+    // Listen to cross-tab events via BroadcastChannel
+    let bc: BroadcastChannel | null = null;
+    if (typeof window !== 'undefined') {
+      bc = new BroadcastChannel('workspace_updates');
+      bc.onmessage = (event) => {
+        if (event.data === 'updated') {
+          fetchWs();
+        }
+      };
+    }
+
+    return () => {
+      window.removeEventListener('workspacesUpdated', fetchWs);
+      if (bc) bc.close();
+    };
+  }, [activeWorkspace, setActiveWorkspace]);
 
   return (
     <nav className="h-14 border-b bg-white dark:bg-gray-900 dark:border-gray-800 flex items-center justify-between px-4 sticky top-0 z-10 shrink-0">
@@ -92,8 +129,8 @@ export default function Navbar({ activeWorkspace, setActiveWorkspace, toggleSide
             <div className="h-px bg-gray-100 dark:bg-gray-800 my-1"></div>
             
             <button 
-              onClick={() => {
-                logout();
+              onClick={async () => {
+                await logout();
                 router.push('/login');
               }}
               className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"

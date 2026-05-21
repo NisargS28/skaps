@@ -1,8 +1,9 @@
 "use client";
 
 import AdminLayout from '@/components/admin/AdminLayout';
-import { Save } from 'lucide-react';
-import { useState } from 'react';
+import { Save, RefreshCw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { getSystemSettings, saveSystemSettings, SystemSettingItem } from '@/lib/api';
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -41,94 +42,174 @@ function InputRow({ label, desc, children }: { label: string; desc?: string; chi
 }
 
 export default function SystemSettingsPage() {
-  const inputClass = "w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white";
+  const inputClass = "w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white disabled:opacity-50";
 
-  const [fileTypes, setFileTypes] = useState('pdf,docx,xlsx,txt,png,jpg,jpeg');
-  const [maxSize, setMaxSize] = useState('10');
-  const [retentionDays, setRetentionDays] = useState('30');
-  const [chatAttachments, setChatAttachments] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
 
-  const [llmModel, setLlmModel] = useState('llama3');
-  const [embeddingModel, setEmbeddingModel] = useState('all-MiniLM-L6-v2');
-  const [sourceRefs, setSourceRefs] = useState(true);
-  const [responseTimeout, setResponseTimeout] = useState('30');
-  const [maxChunks, setMaxChunks] = useState('5');
+  // Define default values
+  const [settings, setSettings] = useState<Record<string, string>>({
+    file_types: 'pdf,docx,xlsx,txt,png,jpg,jpeg',
+    max_upload_size_mb: '10',
+    chat_attachments: 'true',
+    
+    llm_model: 'llama3',
+    embedding_model: 'all-MiniLM-L6-v2',
+    source_refs: 'true',
+    response_timeout: '30',
+    max_chunks: '5',
+    
+    require_login: 'true',
+    admin_only_kb: 'true',
+    audit_logging: 'true',
+    failed_login_limit: '5',
+    
+    chat_retention_days: '90',
+    attach_retention_days: '30',
+    audit_retention_days: '365',
+    
+    system_prompt: 'You are SKAPS AI, a helpful company assistant. Answer questions based on the provided company knowledge base documents. Be concise, professional, and accurate.',
+  });
 
-  const [requireLogin, setRequireLogin] = useState(true);
-  const [adminOnlyKB, setAdminOnlyKB] = useState(true);
-  const [auditLogging, setAuditLogging] = useState(true);
-  const [failedLoginLimit, setFailedLoginLimit] = useState('5');
+  const loadSettings = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await getSystemSettings();
+      if (data.length > 0) {
+        const newSettings = { ...settings };
+        data.forEach(item => {
+          newSettings[item.key] = item.value;
+        });
+        setSettings(newSettings);
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to load settings');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const [chatRetention, setChatRetention] = useState('90');
-  const [attachRetention, setAttachRetention] = useState('30');
-  const [auditRetention, setAuditRetention] = useState('365');
+  useEffect(() => {
+    loadSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const [systemPrompt, setSystemPrompt] = useState('You are SKAPS AI, a helpful company assistant. Answer questions based on the provided company knowledge base documents. Be concise, professional, and accurate.');
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    setSuccess(false);
+    try {
+      const updates = Object.entries(settings).map(([key, value]) => ({ key, value }));
+      await saveSystemSettings(updates);
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (e: any) {
+      setError(e.message || 'Failed to save settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateSetting = (key: string, value: string | boolean) => {
+    setSettings(prev => ({ ...prev, [key]: String(value) }));
+  };
+
+  if (loading) {
+    return (
+      <AdminLayout>
+        <div className="flex justify-center p-12">
+          <RefreshCw className="w-8 h-8 animate-spin text-gray-400" />
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout>
       <div className="space-y-6 max-w-4xl">
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm p-3 rounded-lg">
+            {error}
+          </div>
+        )}
+        
+        {success && (
+          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-600 dark:text-green-400 text-sm p-3 rounded-lg">
+            Settings saved successfully!
+          </div>
+        )}
+
         {/* File Upload Rules */}
         <SectionCard title="File Upload Rules">
           <InputRow label="Allowed File Types" desc="Comma-separated extensions">
-            <input type="text" value={fileTypes} onChange={e => setFileTypes(e.target.value)} className={inputClass} />
+            <input type="text" value={settings.file_types} onChange={e => updateSetting('file_types', e.target.value)} className={inputClass} />
           </InputRow>
           <InputRow label="Max Upload Size (MB)">
-            <input type="number" value={maxSize} onChange={e => setMaxSize(e.target.value)} className={inputClass} />
-          </InputRow>
-          <InputRow label="Chat Attachment Retention (Days)">
-            <input type="number" value={retentionDays} onChange={e => setRetentionDays(e.target.value)} className={inputClass} />
+            <input type="number" value={settings.max_upload_size_mb} onChange={e => updateSetting('max_upload_size_mb', e.target.value)} className={inputClass} />
           </InputRow>
           <InputRow label="Enable Chat Attachments" desc="Allow users to upload files in chat">
-            <div className="flex justify-end"><Toggle checked={chatAttachments} onChange={setChatAttachments} /></div>
+            <div className="flex justify-end">
+              <Toggle checked={settings.chat_attachments === 'true'} onChange={v => updateSetting('chat_attachments', v)} />
+            </div>
           </InputRow>
         </SectionCard>
 
         {/* AI / LLM Settings */}
         <SectionCard title="AI / LLM Settings">
           <InputRow label="Default LLM Model">
-            <input type="text" value={llmModel} onChange={e => setLlmModel(e.target.value)} className={inputClass} />
+            <input type="text" value={settings.llm_model} onChange={e => updateSetting('llm_model', e.target.value)} className={inputClass} />
           </InputRow>
           <InputRow label="Default Embedding Model">
-            <input type="text" value={embeddingModel} onChange={e => setEmbeddingModel(e.target.value)} className={inputClass} />
+            <input type="text" value={settings.embedding_model} onChange={e => updateSetting('embedding_model', e.target.value)} className={inputClass} />
           </InputRow>
           <InputRow label="Enable Source References" desc="Show citations from KB in responses">
-            <div className="flex justify-end"><Toggle checked={sourceRefs} onChange={setSourceRefs} /></div>
+            <div className="flex justify-end">
+              <Toggle checked={settings.source_refs === 'true'} onChange={v => updateSetting('source_refs', v)} />
+            </div>
           </InputRow>
           <InputRow label="Response Timeout (seconds)">
-            <input type="number" value={responseTimeout} onChange={e => setResponseTimeout(e.target.value)} className={inputClass} />
+            <input type="number" value={settings.response_timeout} onChange={e => updateSetting('response_timeout', e.target.value)} className={inputClass} />
           </InputRow>
           <InputRow label="Max Context Chunks" desc="Maximum KB chunks sent as context">
-            <input type="number" value={maxChunks} onChange={e => setMaxChunks(e.target.value)} className={inputClass} />
+            <input type="number" value={settings.max_chunks} onChange={e => updateSetting('max_chunks', e.target.value)} className={inputClass} />
           </InputRow>
         </SectionCard>
 
         {/* Security Settings */}
         <SectionCard title="Security Settings">
           <InputRow label="Require Login">
-            <div className="flex justify-end"><Toggle checked={requireLogin} onChange={setRequireLogin} /></div>
+            <div className="flex justify-end">
+              <Toggle checked={settings.require_login === 'true'} onChange={v => updateSetting('require_login', v)} />
+            </div>
           </InputRow>
           <InputRow label="Admin-only KB Upload" desc="Only admins can upload to Knowledge Base">
-            <div className="flex justify-end"><Toggle checked={adminOnlyKB} onChange={setAdminOnlyKB} /></div>
+            <div className="flex justify-end">
+              <Toggle checked={settings.admin_only_kb === 'true'} onChange={v => updateSetting('admin_only_kb', v)} />
+            </div>
           </InputRow>
           <InputRow label="Enable Audit Logging">
-            <div className="flex justify-end"><Toggle checked={auditLogging} onChange={setAuditLogging} /></div>
+            <div className="flex justify-end">
+              <Toggle checked={settings.audit_logging === 'true'} onChange={v => updateSetting('audit_logging', v)} />
+            </div>
           </InputRow>
           <InputRow label="Failed Login Limit" desc="Max failed attempts before lockout">
-            <input type="number" value={failedLoginLimit} onChange={e => setFailedLoginLimit(e.target.value)} className={inputClass} />
+            <input type="number" value={settings.failed_login_limit} onChange={e => updateSetting('failed_login_limit', e.target.value)} className={inputClass} />
           </InputRow>
         </SectionCard>
 
         {/* Data Retention */}
         <SectionCard title="Data Retention">
           <InputRow label="Chat History Retention (Days)">
-            <input type="number" value={chatRetention} onChange={e => setChatRetention(e.target.value)} className={inputClass} />
+            <input type="number" value={settings.chat_retention_days} onChange={e => updateSetting('chat_retention_days', e.target.value)} className={inputClass} />
           </InputRow>
           <InputRow label="Chat Attachment Retention (Days)">
-            <input type="number" value={attachRetention} onChange={e => setAttachRetention(e.target.value)} className={inputClass} />
+            <input type="number" value={settings.attach_retention_days} onChange={e => updateSetting('attach_retention_days', e.target.value)} className={inputClass} />
           </InputRow>
           <InputRow label="Audit Log Retention (Days)">
-            <input type="number" value={auditRetention} onChange={e => setAuditRetention(e.target.value)} className={inputClass} />
+            <input type="number" value={settings.audit_retention_days} onChange={e => updateSetting('audit_retention_days', e.target.value)} className={inputClass} />
           </InputRow>
         </SectionCard>
 
@@ -138,8 +219,8 @@ export default function SystemSettingsPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Default instruction sent to the LLM for every conversation.</p>
             <textarea
               rows={5}
-              value={systemPrompt}
-              onChange={e => setSystemPrompt(e.target.value)}
+              value={settings.system_prompt}
+              onChange={e => updateSetting('system_prompt', e.target.value)}
               className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white resize-y"
             />
           </div>
@@ -147,9 +228,13 @@ export default function SystemSettingsPage() {
 
         {/* Save */}
         <div className="flex justify-end">
-          <button className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm">
-            <Save className="w-4 h-4" />
-            Save All Settings
+          <button 
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+          >
+            {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {saving ? 'Saving...' : 'Save All Settings'}
           </button>
         </div>
       </div>

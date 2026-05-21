@@ -4,13 +4,14 @@ import { Send, Sparkles, Paperclip, X } from 'lucide-react';
 const ACCEPTED_TYPES = ".pdf,.docx,.txt,.xlsx,.png,.jpg,.jpeg";
 
 interface ChatInputProps {
-  onSendMessage: (text: string, files: File[]) => void;
+  onSendMessage: (text: string, files: File[], model: string) => void;
   isLoading: boolean;
 }
 
 export default function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
   const [text, setText] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [selectedModel, setSelectedModel] = useState('gpt');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -23,7 +24,7 @@ export default function ChatInput({ onSendMessage, isLoading }: ChatInputProps) 
 
   const handleSubmit = () => {
     if (text.trim() && !isLoading) {
-      onSendMessage(text.trim(), selectedFiles);
+      onSendMessage(text.trim(), selectedFiles, selectedModel);
       setText('');
       setSelectedFiles([]);
       // Reset file input so re-selecting the same file works
@@ -76,6 +77,7 @@ export default function ChatInput({ onSendMessage, isLoading }: ChatInputProps) 
         </div>
       )}
 
+
       <div className="flex items-end w-full border dark:border-gray-700 bg-white dark:bg-gray-900 rounded-2xl shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all p-2 gap-2">
         <button
           type="button"
@@ -103,6 +105,16 @@ export default function ChatInput({ onSendMessage, isLoading }: ChatInputProps) 
           rows={1}
           disabled={isLoading}
         />
+        <select
+          value={selectedModel}
+          onChange={(e) => setSelectedModel(e.target.value)}
+          disabled={isLoading}
+          className="mb-1 text-xs font-medium text-gray-500 bg-transparent border-0 hover:bg-gray-100 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:hover:bg-gray-800 dark:text-gray-400 disabled:opacity-50 shrink-0 cursor-pointer"
+        >
+          <option value="gpt">Auto</option>
+          <option value="gemini">Quick response</option>
+          <option value="qwen">Think deeper</option>
+        </select>
         <button
           onClick={handleSubmit}
           disabled={!text.trim() || isLoading}

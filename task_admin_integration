@@ -1,0 +1,20 @@
+# Admin Integration Tasks
+
+## Backend
+- [x] Create `backend/app/models/admin.py` (Workspace, Document, SystemSetting, AuditLog, AnalyticsDailySummary)
+- [x] Update `backend/app/models/user.py` (add status, last_login_at, updated_at)
+- [x] Update `backend/app/models/chat.py` (add token columns, ip_address, updated_at)
+- [x] Create `backend/app/routes/admin.py` (all 14 endpoints + audit log helper)
+- [x] Update `backend/app/main.py` (register admin router, import new models)
+
+## Frontend
+- [x] Update `src/lib/api.ts` (add all typed admin API helpers)
+- [x] Update `src/app/admin/page.tsx` (Dashboard – real KPI stats)
+- [x] Update `src/components/admin/RecentActivity.tsx` (real audit logs)
+- [x] Update `src/components/admin/TopTokenUsers.tsx` (real token data)
+- [x] Update `src/components/admin/UsersTable.tsx` (real users)
+- [x] Update `src/app/admin/workspaces/page.tsx` (real workspaces)
+- [x] Update `src/app/admin/knowledge-base/page.tsx` (real docs + upload)
+- [x] Update `src/app/admin/analytics/page.tsx` (real analytics)
+- [x] Update `src/app/admin/audit-logs/page.tsx` (real audit logs)
+- [x] Update `src/app/admin/settings/page.tsx` (real system settings)

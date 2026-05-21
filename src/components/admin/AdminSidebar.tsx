@@ -11,12 +11,14 @@ import {
   BarChart3,
   Settings,
   ScrollText,
-  ArrowLeft
+  ArrowLeft,
+  Monitor
 } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/users', label: 'Users', icon: Users },
+  { href: '/admin/sessions', label: 'Sessions', icon: Monitor },
   { href: '/admin/workspaces', label: 'Workspaces', icon: Briefcase },
   { href: '/admin/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
   { href: '/admin/analytics', label: 'Analytics', icon: BarChart3 },

@@ -1,0 +1,105 @@
+# Admin Backend + Frontend Integration Plan
+
+## Goal
+
+Connect all admin pages (currently using hardcoded mock data) to real backend API endpoints backed by the `db_admin.sql` schema that is already applied to the database. This covers:
+
+- **Dashboard** – real KPI stats
+- **Users** – real user list with status, last login, token usage
+- **Workspaces** – real workspace records
+- **Knowledge Base** – real documents (upload + list + delete)
+- **Analytics** – real aggregated token/session data
+- **Audit Logs** – real audit_log rows
+- **System Settings** – real `system_settings` key-value store
+- Sessions page already connected ✅
+
+LLM integration is explicitly **excluded** – token counts will be 0 until the LLM is wired up later.
+
+---
+
+## Proposed Changes
+
+### Backend
+
+#### [NEW] `backend/app/models/admin.py`
+New SQLAlchemy models for tables added by `db_admin.sql`:
+- `Workspace`
+- `Document`
+- `DocumentChunk`
+- `SystemSetting`
+- `AuditLog`
+- `AnalyticsDailySummary`
+
+Also update `User` model to include new columns: `status`, `last_login_at`, `updated_at`.
+
+#### [MODIFY] `backend/app/models/chat.py`
+Add missing columns to `ChatMessage` (`prompt_tokens`, `completion_tokens`, `total_tokens`, `response_time_ms`, `status`) and `ChatSession` (`ip_address`, `updated_at`), `ChatAttachment` (`session_id`, `user_id`).
+
+#### [NEW] `backend/app/routes/admin.py`
+Single consolidated admin router with these endpoints:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/admin/dashboard` | KPI stats (users, sessions, KB docs, tokens, avg response) |
+| GET | `/api/admin/users` | List users with filters + token aggregation |
+| PUT | `/api/admin/users/{id}/status` | Change user status (active/inactive/disabled) |
+| POST | `/api/admin/users` | Create new user |
+| GET | `/api/admin/workspaces` | List workspaces with stats |
+| POST | `/api/admin/workspaces` | Create workspace |
+| PUT | `/api/admin/workspaces/{id}` | Edit workspace |
+| GET | `/api/admin/documents` | List KB documents |
+| POST | `/api/admin/documents/upload` | Upload KB document |
+| DELETE | `/api/admin/documents/{id}` | Delete KB document |
+| GET | `/api/admin/analytics` | Analytics data (token usage by workspace, top users) |
+| GET | `/api/admin/audit-logs` | Audit log list with filters |
+| GET | `/api/admin/system-settings` | Get all system settings |
+| PUT | `/api/admin/system-settings` | Bulk update system settings |
+
+A helper `log_audit()` function will write rows to `audit_logs` automatically for mutations.
+
+#### [MODIFY] `backend/app/main.py`
+Register the new admin router.
+
+---
+
+### Frontend
+
+#### [MODIFY] `src/lib/api.ts`
+Add typed API helper functions for all new admin endpoints. Shared types: `AdminUser`, `Workspace`, `KBDocument`, `AuditLog`, `SystemSettings`, `DashboardStats`, `AnalyticsData`.
+
+#### [MODIFY] `src/app/admin/page.tsx` (Dashboard)
+Replace hardcoded `StatCard` values with data fetched from `GET /api/admin/dashboard`. Show loading skeleton while fetching.
+
+#### [MODIFY] `src/components/admin/RecentActivity.tsx`
+Fetch from `GET /api/admin/audit-logs?limit=5`.
+
+#### [MODIFY] `src/components/admin/TopTokenUsers.tsx`
+Fetch from `GET /api/admin/analytics` (top users by token).
+
+#### [MODIFY] `src/components/admin/UsersTable.tsx`
+Replace mock data with real fetch from `GET /api/admin/users`. Support existing filter props (search, department, role, status).
+
+#### [MODIFY] `src/app/admin/workspaces/page.tsx`
+Fetch from `GET /api/admin/workspaces`.
+
+#### [MODIFY] `src/app/admin/knowledge-base/page.tsx`
+Fetch real document list, implement file upload (multipart POST), delete confirmation.
+
+#### [MODIFY] `src/app/admin/analytics/page.tsx`
+Fetch from `GET /api/admin/analytics`.
+
+#### [MODIFY] `src/app/admin/audit-logs/page.tsx`
+Fetch from `GET /api/admin/audit-logs` with search, action, entity filters.
+
+#### [MODIFY] `src/app/admin/settings/page.tsx`
+Load settings from `GET /api/admin/system-settings` on mount, save via `PUT /api/admin/system-settings`.
+
+---
+
+## Verification Plan
+
+1. Run backend: `uvicorn app.main:app --reload` – confirm no import errors
+2. Check `/docs` (FastAPI Swagger) – all new endpoints appear
+3. Open each admin page in browser – no mock data remains
+4. Upload a document to KB page – file appears in list
+5. Change a system setting, refresh – value persists

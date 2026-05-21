@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { isAuthenticated, getUser } from '@/lib/auth';
+import { isAuthenticated, getUser, getToken, logout } from '@/lib/auth';
+import { verifySession } from '@/lib/api';
 import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import ChatWindow from '@/components/ChatWindow';
@@ -45,9 +46,45 @@ export default function Home() {
       router.push('/login');
       return;
     }
+    
     const user = getUser();
-    if (user) {
+    const token = getToken();
+    
+    if (user && token) {
       setUserId(Number(user.id));
+      
+      const checkSession = () => {
+        verifySession(Number(user.id), token).catch((err) => {
+          console.error("Session verification failed:", err);
+          if (err.message) {
+            alert(err.message);
+          }
+          logout();
+          router.push('/login');
+        });
+      };
+
+      // Verify session token is still valid (single device login)
+      checkSession();
+      
+      // Poll every 30 seconds to catch server-side disabling across different browsers
+      const intervalId = setInterval(checkSession, 30000);
+      
+      // Listen to cross-tab user status updates for instant kick out in same browser
+      let bc: BroadcastChannel | null = null;
+      if (typeof window !== 'undefined') {
+        bc = new BroadcastChannel('user_status_updates');
+        bc.onmessage = (event) => {
+          if (event.data?.userId === Number(user.id) && event.data?.status === 'disabled') {
+            checkSession();
+          }
+        };
+      }
+      
+      return () => {
+        clearInterval(intervalId);
+        if (bc) bc.close();
+      };
     }
   }, [router]);
 
@@ -124,7 +161,7 @@ export default function Home() {
     }
   };
 
-  const handleSendMessage = async (text: string, files: File[] = []) => {
+  const handleSendMessage = async (text: string, files: File[] = [], model: string = 'gpt') => {
     if (!userId) return;
 
     try {
@@ -156,6 +193,7 @@ export default function Home() {
       const formData = new FormData();
       formData.append("session_id", String(currentSessionId));
       formData.append("message", text);
+      formData.append("model", model);
       for (const file of files) {
         formData.append("files", file);
       }

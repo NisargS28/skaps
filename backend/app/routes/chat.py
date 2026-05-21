@@ -34,6 +34,7 @@ class ChatSessionResponse(BaseModel):
 class ChatMessageCreate(BaseModel):
     role: str
     content: str
+    model: Optional[str] = None
 
 class ChatAttachmentResponse(BaseModel):
     id: int
@@ -101,6 +102,7 @@ def add_chat_message(session_id: int, message_data: ChatMessageCreate, db: Sessi
 async def send_chat_message(
     session_id: int = Form(...),
     message: str = Form(...),
+    model: Optional[str] = Form(None),
     files: List[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
 ):
@@ -112,7 +114,7 @@ async def send_chat_message(
         raise HTTPException(status_code=404, detail="Session not found")
 
     # 1. Save the user message
-    db_message = ChatMessage(session_id=session_id, role="user", content=message)
+    db_message = ChatMessage(session_id=session_id, role="user", content=message, model=model)
     db.add(db_message)
     db.commit()
     db.refresh(db_message)
