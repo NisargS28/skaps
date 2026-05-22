@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { isAuthenticated, getUser, getToken, logout } from '@/lib/auth';
-import { verifySession } from '@/lib/api';
+import { verifySession, getLLMModels, LLMModel } from '@/lib/api';
 import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import ChatWindow from '@/components/ChatWindow';
@@ -39,7 +39,18 @@ export default function Home() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [userId, setUserId] = useState<number | null>(null);
+  const [availableModels, setAvailableModels] = useState<LLMModel[]>([]);
   const router = useRouter();
+
+  useEffect(() => {
+    getLLMModels()
+      .then(res => {
+        if (res && Array.isArray(res.models)) {
+          setAvailableModels(res.models);
+        }
+      })
+      .catch(err => console.error("Error loading LLM models:", err));
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -206,43 +217,93 @@ export default function Home() {
         const errData = await userMsgRes.json().catch(() => ({}));
         throw new Error(errData.detail || "Failed to send message");
       }
-      
-      const realMessageData = await userMsgRes.json();
-      
-      // Update the temp message with real data from backend
-      setMessages(prev => prev.map(m => 
-        m.id === tempUserId 
-          ? { 
-              id: realMessageData.message.id.toString(), 
-              role: "user", 
-              text: realMessageData.message.content,
-              attachments: realMessageData.attachments || []
-            } 
-          : m
-      ));
+
+      // Read the streaming response
+      const reader = userMsgRes.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) {
+        throw new Error("No reader available on the response stream.");
+      }
+
+      // Add a placeholder bot message immediately to start displaying incoming tokens
+      const tempBotMsgId = `temp-bot-${Date.now()}`;
+      setMessages(prev => [...prev, {
+        id: tempBotMsgId,
+        role: "bot",
+        text: ""
+      }]);
+      setIsLoading(false);
+
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // Keep the last partial line in the buffer
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const cleanLine = line.trim();
+          if (!cleanLine || !cleanLine.startsWith("data: ")) continue;
+
+          try {
+            const rawJson = cleanLine.slice(6);
+            const parsed = JSON.parse(rawJson);
+
+            if (parsed.event === "init") {
+              // Update user message details and attachments in state
+              setMessages(prev => prev.map(m =>
+                m.id === tempUserId
+                  ? {
+                      id: parsed.message.id.toString(),
+                      role: "user",
+                      text: parsed.message.content,
+                      attachments: parsed.attachments || []
+                    }
+                  : m
+              ));
+            } else if (parsed.event === "token") {
+              // Append incoming token to the active bot message
+              setMessages(prev => prev.map(m =>
+                m.id === tempBotMsgId
+                  ? {
+                      ...m,
+                      text: m.text + parsed.text
+                    }
+                  : m
+              ));
+            } else if (parsed.event === "done") {
+              // Replace placeholder bot message with the finalized persisted bot message
+              setMessages(prev => prev.map(m =>
+                m.id === tempBotMsgId
+                  ? {
+                      id: parsed.bot_message.id.toString(),
+                      role: "bot",
+                      text: parsed.bot_message.content
+                    }
+                  : m
+              ));
+            } else if (parsed.event === "error") {
+              // Append error message to bot response
+              setMessages(prev => prev.map(m =>
+                m.id === tempBotMsgId
+                  ? {
+                      ...m,
+                      text: m.text + `\n[Error: ${parsed.error}]`
+                    }
+                  : m
+              ));
+            }
+          } catch (e) {
+            console.error("Error parsing event stream chunk:", e);
+          }
+        }
+      }
 
       if (!activeSessionId) loadSessions();
-
-      setTimeout(async () => {
-        try {
-          const botText = `Response of ${text}`;
-          
-          const botRes = await fetch(`http://localhost:8000/api/chat/sessions/${currentSessionId}/messages`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ role: "bot", content: botText })
-          });
-          if (!botRes.ok) throw new Error("Failed to save bot response");
-          const botData = await botRes.json();
-
-          setMessages(prev => [...prev, { id: botData.id.toString(), role: "bot", text: botText }]);
-        } catch (botErr) {
-          console.error("Error in bot response:", botErr);
-        } finally {
-          setIsLoading(false);
-          loadSessions(); 
-        }
-      }, 1500);
+      setIsLoading(false);
     } catch (err) {
       console.error("Error in handleSendMessage:", err);
       setIsLoading(false);
@@ -284,6 +345,7 @@ export default function Home() {
             isLoading={isLoading} 
             onSendMessage={handleSendMessage}
             activeWorkspace={activeWorkspace}
+            models={availableModels}
           />
         </main>
       </div>

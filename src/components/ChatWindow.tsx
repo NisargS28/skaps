@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import { Bot } from 'lucide-react';
+import { LLMModel } from '@/lib/api';
 
 interface Attachment {
   id: string | number;
@@ -21,6 +22,7 @@ interface ChatWindowProps {
   isLoading: boolean;
   onSendMessage: (text: string, files: File[], model: string) => void;
   activeWorkspace: string;
+  models?: LLMModel[];
 }
 
 const suggestions = [
@@ -30,7 +32,7 @@ const suggestions = [
   "IT support ticket"
 ];
 
-export default function ChatWindow({ messages, isLoading, onSendMessage, activeWorkspace }: ChatWindowProps) {
+export default function ChatWindow({ messages, isLoading, onSendMessage, activeWorkspace, models }: ChatWindowProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -58,7 +60,10 @@ export default function ChatWindow({ messages, isLoading, onSendMessage, activeW
                 {suggestions.map((suggestion, idx) => (
                   <button
                     key={idx}
-                    onClick={() => onSendMessage(suggestion, [], 'gpt')}
+                    onClick={() => {
+                      const firstAvailable = models?.find(m => m.available)?.id || 'google/gemma-2-9b';
+                      onSendMessage(suggestion, [], firstAvailable);
+                    }}
                     className="p-4 border dark:border-gray-800 rounded-xl text-left hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors group"
                   >
                     <p className="font-medium text-gray-700 dark:text-gray-300 group-hover:text-blue-600 dark:group-hover:text-blue-400">{suggestion}</p>
@@ -94,7 +99,7 @@ export default function ChatWindow({ messages, isLoading, onSendMessage, activeW
       
       <div className="p-4 bg-white/80 dark:bg-gray-950/80 backdrop-blur-md border-t dark:border-gray-800">
         <div className="max-w-3xl mx-auto w-full">
-          <ChatInput onSendMessage={onSendMessage} isLoading={isLoading} />
+          <ChatInput onSendMessage={onSendMessage} isLoading={isLoading} models={models} />
         </div>
       </div>
     </div>

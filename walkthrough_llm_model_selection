@@ -1,0 +1,68 @@
+# Walkthrough - Dynamic LLM Model Selection & Admin Panel Integration
+
+We have successfully implemented dynamic LLM model management in the admin settings panel, connection status badge indicators, a robust chat model selection dropdown, and dynamically visualized model usage analytics.
+
+## What Was Accomplished
+
+### 1. Dynamic Settings Management (Admin System Settings)
+- **[MODIFY] [settings/page.tsx](file:///d:/Nisarg.Doc/Skaps/chatbot/src/app/admin/settings/page.tsx)**:
+  - Added a stateful **Allowed LLM Models** management interface inside the **AI / LLM Settings** section.
+  - Implemented dynamic chip additions and removals representing configured model identifiers, persisting them as a comma-separated setting (`llm_models`) in the PostgreSQL database.
+  - Replaced the simple **Default LLM Model** text input field with an elegant dropdown `<select>` component populated exclusively from these configured models.
+  - Added a **Refresh status** helper button to immediately re-poll active status on demand.
+
+### 2. Connection Status Indicator Badges
+- **[MODIFY] [settings/page.tsx](file:///d:/Nisarg.Doc/Skaps/chatbot/src/app/admin/settings/page.tsx)**:
+  - Fetches the active loaded models from LM Studio (`GET /chat/models`) on mount.
+  - Places dynamic status indicator badges (pulsing green dot for loaded/active, gray dot for unloaded/inactive) adjacent to model chips, notifying administrators in real-time which configured models are ready.
+
+### 3. Dynamic Hashing Visuals (Admin Analytics)
+- **[MODIFY] [analytics/page.tsx](file:///d:/Nisarg.Doc/Skaps/chatbot/src/app/admin/analytics/page.tsx)**:
+  - Swapped the hardcoded model filters dropdown with a dynamically populated `<select>` that fetches available model IDs from the backend.
+  - Created a deterministic color hashing function `getModelColor(model)` that maps custom models to premium, curated Tailwind styles (`bg-emerald-500`, `bg-indigo-500`, `bg-rose-500`, `bg-cyan-500`, etc.) ensuring visual consistency.
+  - Integrated `getModelLabel(model)` to format raw model IDs beautifully (e.g. `google/gemma-2-9b` -> `Gemma 2 9b (Google)`) for professional labeling.
+- **[MODIFY] [ModelUsageStats.tsx](file:///d:/Nisarg.Doc/Skaps/chatbot/src/components/admin/ModelUsageStats.tsx)**:
+  - Refactored the dashboard analytics charts to use the exact same dynamic coloring and labeling helpers, ensuring custom administrator-configured models automatically visualizes beautifully.
+
+### 4. Client Side Chat Window Type Stability
+- **[MODIFY] [ChatWindow.tsx](file:///d:/Nisarg.Doc/Skaps/chatbot/src/components/ChatWindow.tsx)**:
+  - Imported the missing `LLMModel` typescript declaration to prevent any compiler warnings, ensuring type stability.
+
+---
+
+## Technical Flow Overview
+
+The model availability pipeline works seamlessly:
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin Panel (Settings)
+    participant Client as User Chat Panel
+    participant Backend as FastAPI Backend
+    participant Studio as LM Studio (/v1/models)
+
+    Admin->>Backend: GET /chat/models
+    Backend->>Studio: Fetch loaded model IDs
+    Note over Backend,Studio: Intersect loaded models with DB llm_models list
+    Backend-->>Admin: Return model status list
+    Note over Admin: Render active (green) and inactive (gray) badges
+
+    Client->>Backend: GET /chat/models
+    Backend-->>Client: Return only active models
+    Note over Client: Populate ChatInput select with active models
+
+    Client->>Backend: POST /chat/send (includes model)
+    Backend->>Studio: ask_lm_studio(..., model=chosen)
+    Backend-->>Client: Return answer & persist model in ChatMessage
+```
+
+---
+
+## Manual Verification & Walkthrough Guide
+
+1. **Model Management**: Navigate to **Admin Panel -> System Settings** under **AI / LLM Settings**.
+   - Input a new model (e.g., `mistralai/ministral-3-14b-reasoning`) and click **Add Model**.
+   - The model is added as a chip. Click **Save All Settings**.
+   - Verify that this model now instantly appears in the **Default LLM Model** dropdown options.
+2. **Badge Connection**: Under **Allowed LLM Models**, notice the connection status dots. If LM Studio is online and a model is loaded, a pulsing green dot is visible; otherwise, a solid gray dot indicates it is configured but not currently loaded.
+3. **Dynamic Filtering**: Navigate to **Admin Panel -> Analytics**. The **All Models** dropdown filter now dynamically loads the configured items from the database with premium formatted labels (e.g., `Gemma 2 9b (Google)`), and your dynamic dashboard charts will color-code them deterministically using high-contrast, professional styling.

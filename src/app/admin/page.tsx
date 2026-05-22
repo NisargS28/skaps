@@ -83,7 +83,7 @@ export default function AdminDashboardPage() {
               {[
                 { label: 'API Server', icon: Wifi, status: loading ? 'Checking…' : error ? 'Error' : 'Healthy', ok: !error },
                 { label: 'Database', icon: Database, status: loading ? 'Checking…' : error ? 'Unreachable' : 'Connected', ok: !error },
-                { label: 'LLM Service', icon: Cpu, status: 'Not configured', ok: false },
+                { label: 'LLM Service', icon: Cpu, status: loading ? 'Checking…' : stats?.llm_healthy ? 'Connected' : 'Unreachable', ok: !!stats?.llm_healthy },
                 { label: 'Vector Store', icon: Database, status: 'Not configured', ok: false },
               ].map((s, i) => (
                 <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50">

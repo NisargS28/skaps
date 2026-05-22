@@ -11,6 +11,8 @@ from datetime import datetime, date
 import os
 import uuid
 import shutil
+import httpx
+
 
 from app.database import get_db
 from app.models.user import User
@@ -117,7 +119,20 @@ def get_dashboard(db: Session = Depends(get_db)):
         .all()
     )
 
+    # Check LLM Health
+    llm_healthy = False
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        lm_url = os.getenv("LM_STUDIO_BASE_URL", "http://192.168.23.111:1233/v1")
+        r = httpx.get(f"{lm_url}/models", timeout=2.0)
+        if r.status_code == 200:
+            llm_healthy = True
+    except Exception as e:
+        pass
+
     return {
+        "llm_healthy": llm_healthy,
         "total_users": total_users,
         "active_today": active_today,
         "total_sessions": total_sessions,
@@ -691,6 +706,79 @@ def get_analytics(
             }
             for row in model_usage
         ],
+    }
+
+
+@router.get("/analytics/usage")
+def get_analytics_usage(
+    date_range: Optional[str] = "30d",
+    workspace: Optional[str] = None,
+    model: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Return detailed usage statistics for LM Studio calls.
+    Supports filtering by date range, workspace, and model.
+    """
+    from datetime import timedelta
+
+    # Date filter
+    now = datetime.utcnow()
+    if date_range == "7d":
+        since = now - timedelta(days=7)
+    elif date_range == "90d":
+        since = now - timedelta(days=90)
+    elif date_range == "all":
+        since = None
+    else:  # default 30d
+        since = now - timedelta(days=30)
+
+    base_q = db.query(ChatMessage).join(ChatSession, ChatMessage.session_id == ChatSession.id)
+
+    if since:
+        base_q = base_q.filter(ChatMessage.created_at >= since)
+
+    if workspace:
+        base_q = base_q.filter(ChatSession.workspace == workspace)
+
+    if model:
+        base_q = base_q.filter(ChatMessage.model == model)
+
+    # 1. total_queries = count of user messages OR count of bot responses, whichever is already used consistently in project.
+    total_queries = base_q.filter(ChatMessage.role == "user").count()
+
+    # 2. successful = count where sender='bot' and status='success' (using coalesce for old database entries)
+    successful = base_q.filter(
+        ChatMessage.role == "bot",
+        func.coalesce(ChatMessage.status, "success") == "success"
+    ).count()
+
+    # 3. failed = count where sender='bot' and status='failed'
+    failed = base_q.filter(ChatMessage.role == "bot", ChatMessage.status == "failed").count()
+
+    # 4. avg_response_time_ms = average response_time_ms where sender='bot' and response_time_ms > 0
+    avg_resp = (
+        base_q.filter(ChatMessage.role == "bot", ChatMessage.response_time_ms > 0)
+        .with_entities(func.round(func.avg(ChatMessage.response_time_ms), 0))
+        .scalar()
+    )
+
+    # 5. prompt_tokens, completion_tokens, total_tokens = sum prompt/completion/total tokens where sender='bot'
+    token_data = base_q.filter(ChatMessage.role == "bot").with_entities(
+        func.coalesce(func.sum(ChatMessage.prompt_tokens), 0),
+        func.coalesce(func.sum(ChatMessage.completion_tokens), 0),
+        func.coalesce(func.sum(ChatMessage.total_tokens), 0),
+    ).one()
+
+    return {
+        "total_queries": total_queries,
+        "successful": successful,
+        "failed": failed,
+        "avg_response_time_ms": int(avg_resp) if avg_resp else 0,
+        "prompt_tokens": int(token_data[0]),
+        "completion_tokens": int(token_data[1]),
+        "total_tokens": int(token_data[2]),
+        "estimated_cost": 0
     }
 
 

@@ -78,6 +78,7 @@ export async function getAdminSessions(filters?: {
 // ─── Admin API ────────────────────────────────────────────────────────────────
 
 export interface DashboardStats {
+  llm_healthy?: boolean;
   total_users: number;
   active_today: number;
   total_sessions: number;
@@ -312,6 +313,27 @@ export async function getAnalytics(dateRange?: string, workspace?: string, model
   return r.json();
 }
 
+export interface AnalyticsUsage {
+  total_queries: number;
+  successful: number;
+  failed: number;
+  avg_response_time_ms: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost: number;
+}
+
+export async function getAnalyticsUsage(dateRange?: string, workspace?: string, model?: string): Promise<AnalyticsUsage> {
+  const params = new URLSearchParams();
+  if (dateRange) params.set('date_range', dateRange);
+  if (workspace) params.set('workspace', workspace);
+  if (model) params.set('model', model);
+  const r = await fetch(`${API_BASE}/admin/analytics/usage?${params.toString()}`);
+  if (!r.ok) throw new Error('Failed to fetch analytics usage');
+  return r.json();
+}
+
 export interface AuditLogEntry {
   id: number;
   user_id: number | null;
@@ -361,5 +383,22 @@ export async function saveSystemSettings(updates: { key: string; value: string }
     body: JSON.stringify(updates),
   });
   if (!r.ok) throw new Error('Failed to save system settings');
+}
+
+export interface LLMModel {
+  id: string;
+  available: boolean;
+  enabled: boolean;
+}
+
+export interface LLMModelsResponse {
+  lm_studio_online: boolean;
+  models: LLMModel[];
+}
+
+export async function getLLMModels(): Promise<LLMModelsResponse> {
+  const r = await fetch(`${API_BASE}/chat/models`);
+  if (!r.ok) throw new Error('Failed to fetch LLM models');
+  return r.json();
 }
 

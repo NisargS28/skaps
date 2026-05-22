@@ -1,19 +1,54 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Sparkles, Paperclip, X } from 'lucide-react';
+import { LLMModel } from '@/lib/api';
 
 const ACCEPTED_TYPES = ".pdf,.docx,.txt,.xlsx,.png,.jpg,.jpeg";
 
 interface ChatInputProps {
   onSendMessage: (text: string, files: File[], model: string) => void;
   isLoading: boolean;
+  models?: LLMModel[];
 }
 
-export default function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
+export default function ChatInput({ onSendMessage, isLoading, models }: ChatInputProps) {
   const [text, setText] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [selectedModel, setSelectedModel] = useState('gpt');
+  const [selectedModel, setSelectedModel] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const getModelLabel = (model: string): string => {
+    const m = model.toLowerCase();
+    if (m === 'gpt') return 'Auto (GPT)';
+    if (m === 'gemini') return 'Quick response (Gemini)';
+    if (m === 'qwen') return 'Think deeper (Qwen)';
+
+    if (model.includes('/')) {
+      const [provider, name] = model.split('/');
+      const formattedName = name
+        .split('-')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+      const formattedProvider = provider.charAt(0).toUpperCase() + provider.slice(1);
+      return `${formattedName} (${formattedProvider})`;
+    }
+
+    return model
+      .split(/[-_/]+/)
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
+  useEffect(() => {
+    if (models && models.length > 0) {
+      const activeModels = models.filter(m => m.available && m.enabled !== false);
+      const firstAvailable = activeModels[0]?.id;
+      // If we don't have a selected model yet, or the current selected model is not in the list of active ones, set it
+      if (firstAvailable && (!selectedModel || !activeModels.some(m => m.id === selectedModel))) {
+        setSelectedModel(firstAvailable);
+      }
+    }
+  }, [models, selectedModel]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -108,12 +143,20 @@ export default function ChatInput({ onSendMessage, isLoading }: ChatInputProps) 
         <select
           value={selectedModel}
           onChange={(e) => setSelectedModel(e.target.value)}
-          disabled={isLoading}
+          disabled={isLoading || !models || models.filter(m => m.available && m.enabled !== false).length === 0}
           className="mb-1 text-xs font-medium text-gray-500 bg-transparent border-0 hover:bg-gray-100 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:hover:bg-gray-800 dark:text-gray-400 disabled:opacity-50 shrink-0 cursor-pointer"
         >
-          <option value="gpt">Auto</option>
-          <option value="gemini">Quick response</option>
-          <option value="qwen">Think deeper</option>
+          {models && models.filter(m => m.available && m.enabled !== false).length > 0 ? (
+            models
+              .filter(m => m.available && m.enabled !== false)
+              .map((m) => (
+                <option key={m.id} value={m.id}>
+                  {getModelLabel(m.id)}
+                </option>
+              ))
+          ) : (
+            <option value="">No models available</option>
+          )}
         </select>
         <button
           onClick={handleSubmit}

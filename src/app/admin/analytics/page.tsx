@@ -4,7 +4,7 @@ import AdminLayout from '@/components/admin/AdminLayout';
 import StatCard from '@/components/admin/StatCard';
 import { MessageCircle, CheckCircle, AlertTriangle, Clock, Zap, DollarSign, RefreshCw } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
-import { getAnalytics, getWorkspaces, AnalyticsData, Workspace } from '@/lib/api';
+import { getAnalytics, getWorkspaces, getAnalyticsUsage, getLLMModels, AnalyticsData, AnalyticsUsage, Workspace } from '@/lib/api';
 
 const WORKSPACE_COLORS: Record<string, string> = {
   HR: 'bg-blue-500',
@@ -13,16 +13,54 @@ const WORKSPACE_COLORS: Record<string, string> = {
   IT: 'bg-purple-500',
 };
 
-const MODEL_COLORS: Record<string, string> = {
-  gpt: 'bg-green-500',
-  gemini: 'bg-blue-500',
-  qwen: 'bg-purple-500',
+const getModelColor = (model: string): string => {
+  const m = model.toLowerCase();
+  if (m.includes('gpt') || m.includes('openai')) return 'bg-emerald-500';
+  if (m.includes('gemini') || m.includes('google')) return 'bg-blue-500';
+  if (m.includes('qwen')) return 'bg-purple-500';
+  if (m.includes('llama') || m.includes('meta')) return 'bg-indigo-500';
+  if (m.includes('mistral') || m.includes('ministral')) return 'bg-rose-500';
+  if (m.includes('claude') || m.includes('anthropic')) return 'bg-orange-500';
+  if (m.includes('deepseek')) return 'bg-cyan-500';
+  
+  const premiumColors = [
+    'bg-indigo-500',
+    'bg-rose-500',
+    'bg-amber-500',
+    'bg-sky-500',
+    'bg-violet-500',
+    'bg-pink-500',
+    'bg-teal-500',
+    'bg-emerald-500'
+  ];
+  let hash = 0;
+  for (let i = 0; i < model.length; i++) {
+    hash = model.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % premiumColors.length;
+  return premiumColors[index];
 };
 
-const MODEL_LABELS: Record<string, string> = {
-  gpt: 'Auto (GPT)',
-  gemini: 'Quick response (Gemini)',
-  qwen: 'Think deeper (Qwen)',
+const getModelLabel = (model: string): string => {
+  const m = model.toLowerCase();
+  if (m === 'gpt') return 'Auto (GPT)';
+  if (m === 'gemini') return 'Quick response (Gemini)';
+  if (m === 'qwen') return 'Think deeper (Qwen)';
+
+  if (model.includes('/')) {
+    const [provider, name] = model.split('/');
+    const formattedName = name
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+    const formattedProvider = provider.charAt(0).toUpperCase() + provider.slice(1);
+    return `${formattedName} (${formattedProvider})`;
+  }
+
+  return model
+    .split(/[-_/]+/)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 };
 
 function fmt(n: number): string {
@@ -33,7 +71,8 @@ function fmt(n: number): string {
 
 function fmtMs(ms: number): string {
   if (!ms) return '—';
-  return (ms / 1000).toFixed(1) + 's';
+  if (ms < 1000) return `${ms} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
 }
 
 export default function AnalyticsPage() {
@@ -41,7 +80,9 @@ export default function AnalyticsPage() {
   const [wsFilter, setWsFilter] = useState('');
   const [modelFilter, setModelFilter] = useState('');
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  const [usage, setUsage] = useState<AnalyticsUsage | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -52,8 +93,12 @@ export default function AnalyticsPage() {
     setLoading(true);
     setError('');
     try {
-      const data = await getAnalytics(dateRange, wsFilter || undefined, modelFilter || undefined);
-      setAnalytics(data);
+      const [analyticsData, usageData] = await Promise.all([
+        getAnalytics(dateRange, wsFilter || undefined, modelFilter || undefined),
+        getAnalyticsUsage(dateRange, wsFilter || undefined, modelFilter || undefined)
+      ]);
+      setAnalytics(analyticsData);
+      setUsage(usageData);
     } catch (e: any) {
       setError(e.message || 'Failed to load analytics');
     } finally {
@@ -63,6 +108,13 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     getWorkspaces().then(setWorkspaces).catch(() => {});
+    getLLMModels()
+      .then((res) => {
+        setAvailableModels(res.models.map((m) => m.id));
+      })
+      .catch((err) => {
+        console.error("Failed to load models for analytics filtering:", err);
+      });
   }, []);
 
   useEffect(() => {
@@ -110,9 +162,19 @@ export default function AnalyticsPage() {
             className={selectClass}
           >
             <option value="">All Models</option>
-            <option value="gpt">Auto (GPT)</option>
-            <option value="gemini">Quick response (Gemini)</option>
-            <option value="qwen">Think deeper (Qwen)</option>
+            {availableModels.length === 0 ? (
+              <>
+                <option value="gpt">Auto (GPT)</option>
+                <option value="gemini">Quick response (Gemini)</option>
+                <option value="qwen">Think deeper (Qwen)</option>
+              </>
+            ) : (
+              availableModels.map(model => (
+                <option key={model} value={model}>
+                  {getModelLabel(model)}
+                </option>
+              ))
+            )}
           </select>
           <button
             onClick={fetchData}
@@ -136,28 +198,28 @@ export default function AnalyticsPage() {
           <StatCard
             icon={MessageCircle}
             title="Total Queries"
-            value={analytics ? fmt(analytics.total_messages) : '—'}
+            value={usage ? fmt(usage.total_queries) : '—'}
             color="bg-blue-500"
             loading={loading}
           />
           <StatCard
             icon={CheckCircle}
             title="Successful"
-            value={analytics ? fmt(analytics.successful) : '—'}
+            value={usage ? fmt(usage.successful) : '—'}
             color="bg-green-500"
             loading={loading}
           />
           <StatCard
             icon={AlertTriangle}
             title="Failed"
-            value={analytics ? fmt(analytics.failed) : '—'}
+            value={usage ? fmt(usage.failed) : '—'}
             color="bg-red-500"
             loading={loading}
           />
           <StatCard
             icon={Clock}
             title="Avg Response"
-            value={analytics ? fmtMs(analytics.avg_response_ms) : '—'}
+            value={usage ? fmtMs(usage.avg_response_time_ms) : '—'}
             color="bg-teal-500"
             loading={loading}
           />
@@ -168,21 +230,21 @@ export default function AnalyticsPage() {
           <StatCard
             icon={Zap}
             title="Prompt Tokens"
-            value={analytics ? fmt(analytics.prompt_tokens) : '—'}
+            value={usage ? fmt(usage.prompt_tokens) : '—'}
             color="bg-blue-500"
             loading={loading}
           />
           <StatCard
             icon={Zap}
             title="Completion Tokens"
-            value={analytics ? fmt(analytics.completion_tokens) : '—'}
+            value={usage ? fmt(usage.completion_tokens) : '—'}
             color="bg-indigo-500"
             loading={loading}
           />
           <StatCard
             icon={Zap}
             title="Total Tokens"
-            value={analytics ? fmt(analytics.total_tokens) : '—'}
+            value={usage ? fmt(usage.total_tokens) : '—'}
             color="bg-amber-500"
             loading={loading}
           />
@@ -257,7 +319,7 @@ export default function AnalyticsPage() {
                 <div key={i}>
                   <div className="flex justify-between text-sm mb-1.5">
                     <span className="font-medium text-gray-700 dark:text-gray-300">
-                      {MODEL_LABELS[m.model] || m.model}
+                      {getModelLabel(m.model)}
                     </span>
                     <span className="text-gray-500 text-xs font-bold">
                       {m.count} messages
@@ -265,7 +327,7 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-2.5 overflow-hidden">
                     <div
-                      className={`${MODEL_COLORS[m.model] || 'bg-gray-400'} h-2.5 rounded-full transition-all duration-700`}
+                      className={`${getModelColor(m.model)} h-2.5 rounded-full transition-all duration-700`}
                       style={{ width: `${Math.max((m.count / maxModel) * 100, 0)}%` }}
                     />
                   </div>

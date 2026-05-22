@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -8,6 +9,19 @@ from datetime import datetime
 import uuid
 import os
 import shutil
+import httpx
+
+# Load environment variables for LM Studio
+from dotenv import load_dotenv
+load_dotenv()
+
+from fastapi.concurrency import run_in_threadpool
+from app.services.llm_service import ask_lm_studio
+from app.models.admin import SystemSetting
+import json
+
+LM_STUDIO_BASE_URL = os.getenv("LM_STUDIO_BASE_URL", "http://192.168.23.111:1233/v1")
+LM_STUDIO_MODEL = os.getenv("LM_STUDIO_MODEL", "google/gemma-2-9b")
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -53,6 +67,11 @@ class ChatMessageResponse(BaseModel):
     session_id: int
     role: str
     content: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    response_time_ms: int = 0
+    status: str = "success"
     created_at: datetime
     attachments: List[ChatAttachmentResponse] = []
 
@@ -98,6 +117,101 @@ def add_chat_message(session_id: int, message_data: ChatMessageCreate, db: Sessi
     return db_message
 
 
+@router.get("/models")
+def get_available_models(db: Session = Depends(get_db)):
+    # 1. Fetch configured models from DB setting
+    setting = db.query(SystemSetting).filter(SystemSetting.setting_key == "llm_models").first()
+    
+    models_list = []
+    enabled_map = {}
+    if setting and setting.setting_value:
+        val = setting.setting_value.strip()
+        if val.startswith("[") and val.endswith("]"):
+            try:
+                parsed = json.loads(val)
+                for item in parsed:
+                    if isinstance(item, dict) and "id" in item:
+                        m_id = item["id"]
+                        models_list.append(m_id)
+                        enabled_map[m_id] = item.get("enabled", True)
+                    elif isinstance(item, str):
+                        models_list.append(item)
+                        enabled_map[item] = True
+            except Exception as e:
+                print(f"Error parsing JSON settings llm_models: {e}")
+                models_list = [m.strip() for m in val.split(",") if m.strip()]
+        else:
+            models_list = [m.strip() for m in val.split(",") if m.strip()]
+    else:
+        # If setting doesn't exist, read from models.json and initialize setting in DB
+        try:
+            backend_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            models_path = os.path.join(backend_path, "models.json")
+            if os.path.exists(models_path):
+                with open(models_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict) and "chatModels" in data:
+                        models_list = [m["id"] for m in data["chatModels"] if "id" in m]
+                    elif isinstance(data, list):
+                        models_list = [m["id"] for m in data if "id" in m]
+                    else:
+                        models_list = []
+            else:
+                # Hardcoded fallbacks if models.json not found
+                models_list = [
+                    "qwen/qwen3.5-9b",
+                    "google/gemma-2-9b",
+                    "mistralai/ministral-3-14b-reasoning",
+                    "nvidia/nemotron-3-nano-4b"
+                ]
+            
+            # Save to DB as JSON format
+            json_list = [{"id": m_id, "enabled": True} for m_id in models_list]
+            new_setting = SystemSetting(
+                setting_key="llm_models",
+                setting_value=json.dumps(json_list),
+                setting_type="text",
+                description="JSON list of configured LLM models with enable/disable flags."
+            )
+            db.add(new_setting)
+            db.commit()
+        except Exception as e:
+            print(f"Error loading fallback models.json: {e}")
+            models_list = ["google/gemma-2-9b", "qwen/qwen3.5-9b"]
+    
+    # 2. Check loaded models from LM Studio
+    loaded_model_ids = set()
+    lm_studio_online = False
+    try:
+        # Query f"{LM_STUDIO_BASE_URL}/models"
+        response = httpx.get(f"{LM_STUDIO_BASE_URL}/models", timeout=2.0)
+        if response.status_code == 200:
+            data = response.json()
+            if "data" in data:
+                for m in data["data"]:
+                    if "id" in m:
+                        loaded_model_ids.add(m["id"])
+            lm_studio_online = True
+    except Exception as e:
+        print(f"LM Studio offline or error fetching loaded models: {e}")
+    
+    # 3. Build return models list
+    result = []
+    for m_id in models_list:
+        available = m_id in loaded_model_ids if lm_studio_online else True
+        enabled = enabled_map.get(m_id, True)
+        result.append({
+            "id": m_id,
+            "available": available,
+            "enabled": enabled
+        })
+        
+    return {
+        "lm_studio_online": lm_studio_online,
+        "models": result
+    }
+
+
 @router.post("/send")
 async def send_chat_message(
     session_id: int = Form(...),
@@ -106,7 +220,7 @@ async def send_chat_message(
     files: List[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
 ):
-    """Send a chat message with optional file attachments."""
+    """Send a chat message with optional file attachments, returning an SSE stream."""
 
     # Validate session exists
     db_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
@@ -175,16 +289,75 @@ async def send_chat_message(
             "upload_status": db_attachment.upload_status,
         })
 
-    return {
-        "message": {
-            "id": db_message.id,
-            "session_id": db_message.session_id,
-            "role": db_message.role,
-            "content": db_message.content,
-            "created_at": db_message.created_at.isoformat() if db_message.created_at else None,
-        },
-        "attachments": saved_attachments,
-    }
+    # 3. Call LM Studio API for bot response streaming
+    session_messages = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.created_at.asc()).all()
+    
+    lm_messages = []
+    for msg in session_messages:
+        role = "assistant" if msg.role == "bot" else "user" if msg.role == "user" else "system"
+        lm_messages.append({"role": role, "content": msg.content})
+
+    async def stream_generator():
+        # First yield the "init" event with the saved user message and attachments
+        yield f"data: {json.dumps({'event': 'init', 'message': {'id': db_message.id, 'session_id': db_message.session_id, 'role': db_message.role, 'content': db_message.content, 'created_at': db_message.created_at.isoformat() if db_message.created_at else None}, 'attachments': saved_attachments})}\n\n"
+
+        from app.services.llm_service import ask_lm_studio_stream
+        
+        # Execute the stream generator in a thread pool to avoid blocking the main event loop
+        stream = ask_lm_studio_stream(message, messages=lm_messages, model=model)
+        
+        bot_content = ""
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
+        response_time_ms = 0
+        status = "success"
+        
+        for chunk in stream:
+            event = chunk.get("event")
+            if event == "token":
+                text = chunk.get("text", "")
+                bot_content += text
+                yield f"data: {json.dumps({'event': 'token', 'text': text})}\n\n"
+            elif event == "done":
+                prompt_tokens = chunk.get("prompt_tokens", 0)
+                completion_tokens = chunk.get("completion_tokens", 0)
+                total_tokens = chunk.get("total_tokens", 0)
+                response_time_ms = chunk.get("response_time_ms", 0)
+                status = chunk.get("status", "success")
+            elif event == "error":
+                status = "failed"
+                err_msg = chunk.get("error", "Error calling LLM")
+                yield f"data: {json.dumps({'event': 'error', 'error': err_msg})}\n\n"
+
+        # 4. Save the bot message to database using a fresh SessionLocal to avoid greenlet/async thread-safety issues
+        from app.database import SessionLocal
+        save_db = SessionLocal()
+        try:
+            db_bot_message = ChatMessage(
+                session_id=session_id,
+                role="bot",
+                content=bot_content or "Sorry, I could not generate a response right now.",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                response_time_ms=response_time_ms,
+                status=status,
+                model=model or LM_STUDIO_MODEL
+            )
+            save_db.add(db_bot_message)
+            save_db.commit()
+            save_db.refresh(db_bot_message)
+            
+            # Yield final "done" event
+            yield f"data: {json.dumps({'event': 'done', 'bot_message': {'id': db_bot_message.id, 'session_id': db_bot_message.session_id, 'role': db_bot_message.role, 'content': db_bot_message.content, 'prompt_tokens': db_bot_message.prompt_tokens, 'completion_tokens': db_bot_message.completion_tokens, 'total_tokens': db_bot_message.total_tokens, 'response_time_ms': db_bot_message.response_time_ms, 'status': db_bot_message.status, 'created_at': db_bot_message.created_at.isoformat() if db_bot_message.created_at else None}})}\n\n"
+        except Exception as ex:
+            print(f"Error saving bot message in stream: {ex}")
+            save_db.rollback()
+        finally:
+            save_db.close()
+
+    return StreamingResponse(stream_generator(), media_type="text/event-stream")
 
 @router.delete("/history/{user_id}")
 def clear_chat_history(user_id: int, db: Session = Depends(get_db)):
