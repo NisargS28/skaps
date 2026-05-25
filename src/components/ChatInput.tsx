@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, Paperclip, X } from 'lucide-react';
+import { Send, Sparkles, Paperclip, X, FileText } from 'lucide-react';
 import { LLMModel } from '@/lib/api';
 
 const ACCEPTED_TYPES = ".pdf,.docx,.txt,.xlsx,.png,.jpg,.jpeg";
 
 interface ChatInputProps {
-  onSendMessage: (text: string, files: File[], model: string) => void;
+  onSendMessage: (text: string, files: File[], model: string, isRagMode?: boolean) => void;
   isLoading: boolean;
   models?: LLMModel[];
 }
@@ -14,6 +14,7 @@ export default function ChatInput({ onSendMessage, isLoading, models }: ChatInpu
   const [text, setText] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
+  const [isRagMode, setIsRagMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -59,7 +60,7 @@ export default function ChatInput({ onSendMessage, isLoading, models }: ChatInpu
 
   const handleSubmit = () => {
     if (text.trim() && !isLoading) {
-      onSendMessage(text.trim(), selectedFiles, selectedModel);
+      onSendMessage(text.trim(), selectedFiles, selectedModel, isRagMode);
       setText('');
       setSelectedFiles([]);
       // Reset file input so re-selecting the same file works
@@ -121,6 +122,18 @@ export default function ChatInput({ onSendMessage, isLoading, models }: ChatInpu
           title="Attach file"
         >
           <Paperclip className="w-5 h-5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setIsRagMode(!isRagMode)}
+          className={`p-2 mb-0.5 rounded-full flex items-center justify-center transition-all shrink-0 ${
+            isRagMode 
+              ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400 border border-blue-200 dark:border-blue-800' 
+              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
+          }`}
+          title={isRagMode ? "RAG mode active: Grounded on documents" : "Query document database"}
+        >
+          <FileText className="w-5 h-5" />
         </button>
         <input 
           type="file" 

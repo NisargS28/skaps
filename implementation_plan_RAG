@@ -1,0 +1,130 @@
+# Implementation Plan - Step-by-Step RAG Integration using Qdrant
+
+This plan details the step-by-step implementation of the Retrieval-Augmented Generation (RAG) system inside the existing SKAPS AI chatbot project. The architecture consists of a Python/FastAPI backend and a React/Next.js frontend.
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Qdrant Vector Database Connection**: The backend will connect to Qdrant at `http://localhost:6333` (configured in `.env`). Please make sure a local Qdrant container or cloud cluster is running.
+> You can launch Qdrant locally using Docker:
+> ```bash
+> docker run -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage qdrant/qdrant
+> ```
+
+> [!TIP]
+> **Automatic Processing Integration**: Instead of duplicating upload and deletion endpoints, we will hook the RAG text extraction, chunking, and embedding ingestion directly into the existing Knowledge Base endpoints (`/api/admin/documents/upload` and `/api/admin/documents/{doc_id}`). This ensures documents uploaded via the admin panel are processed and semantically indexed in Qdrant automatically!
+
+---
+
+## Proposed Changes
+
+We will introduce a modular RAG pipeline in both the backend and frontend.
+
+### Component 1: Python Virtual Environment Dependencies
+
+To extract text and integrate with Qdrant, we must install the following Python packages in the virtual environment:
+- `qdrant-client`: REST client for Qdrant.
+- `pypdf`: Light-weight parser for extracting text from PDFs.
+- `python-docx`: Document text extractor for Word files (.docx).
+
+---
+
+### Component 2: Backend Models & Settings Sync
+
+#### [MODIFY] [.env](file:///d:/Nisarg.Doc/Skaps/chatbot/backend/.env)
+Add environment variables for Qdrant integration:
+```env
+QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=
+QDRANT_COLLECTION=rag_documents
+EMBEDDING_DIMENSIONS=768
+DEFAULT_CHAT_MODEL=qwen/qwen3.5-9b
+```
+
+---
+
+### Component 3: Model Registry & Services
+
+#### [NEW] [model_registry.py](file:///d:/Nisarg.Doc/Skaps/chatbot/backend/app/utils/model_registry.py)
+A registry module to read active models from `SystemSetting` or fall back to `backend/models.json`:
+- `get_embedding_model_id()`: Fetches the configured default embedding model (e.g. `text-embedding-nomic-embed-text-v1.5`).
+- `get_enabled_chat_models(db)`: Fetches a list of chat models enabled by the administrator.
+- `is_model_enabled(model_id, db)`: Validates that the requested model is active.
+
+#### [NEW] [document_service.py](file:///d:/Nisarg.Doc/Skaps/chatbot/backend/app/services/rag/document_service.py)
+- `extract_text_from_file(file_path, file_type)`: Extracts raw text from `.pdf`, `.docx`, and `.txt` files.
+- Handles edge cases and throws clear exceptions for unsupported file structures or types.
+
+#### [NEW] [chunk_service.py](file:///d:/Nisarg.Doc/Skaps/chatbot/backend/app/services/rag/chunk_service.py)
+- `chunk_text(text, chunk_size=1000, overlap=200)`: Chunks text by character counts with overlap.
+- Normalizes whitespaces, double newlines, and rejects chunks under 50 characters.
+
+#### [NEW] [embedding_service.py](file:///d:/Nisarg.Doc/Skaps/chatbot/backend/app/services/rag/embedding_service.py)
+- `create_embedding(text, db)`: Sends a request to LM Studio's `/v1/embeddings` endpoint with the active embedding model ID.
+- Returns a list of floats (`List[float]`).
+
+#### [NEW] [vector_service.py](file:///d:/Nisarg.Doc/Skaps/chatbot/backend/app/services/rag/vector_service.py)
+- Initializes the Qdrant client with `QDRANT_URL` and `QDRANT_API_KEY`.
+- `ensure_collection_exists()`: Verifies if `QDRANT_COLLECTION` exists, creating it with Cosine distance and 768 dimensions if missing.
+- `store_document_chunks(document_id, chunks, file_name, workspace_id, user_id=None)`: Commits chunk payload attributes (text, file name, workspace ID) to Qdrant.
+- `search_similar_chunks(embedding, workspace_id, top_k=5)`: Filters semantic chunks by workspace ID to maintain cross-workspace tenant bounds.
+- `delete_document_chunks(document_id)`: Removes points matching `document_id`.
+
+#### [NEW] [rag_service.py](file:///d:/Nisarg.Doc/Skaps/chatbot/backend/app/services/rag/rag_service.py)
+- `ingest_document(document_id, db)`: Performs text extraction, chunking, embeddings generation, vector storage in Qdrant, and updates PostgreSQL database statuses (`chunk_count`, `processing_status="completed"`, `embedding_status="embedded"`).
+- `answer_with_rag(question, selected_model, workspace_id, db)`:
+  - Embeds the question.
+  - Queries Qdrant for top relevant chunks within the active workspace.
+  - Contextualizes a grounded prompt:
+    ```text
+    You are SKAPS AI, a helpful company assistant. Use ONLY the provided context to answer the question. If the answer is not in the context, say 'I don't know based on uploaded documents.' Do not make up information.
+    ```
+  - Sends to standard LLM completions, returning the response text and sources citations array: `{answer, model, sources}` where sources is a list of `{fileName, documentId, chunkIndex, score}`.
+
+---
+
+### Component 4: Backend Routes & Main Router
+
+#### [NEW] [rag.py](file:///d:/Nisarg.Doc/Skaps/chatbot/backend/app/routes/rag.py)
+- Exposes standard API endpoints as requested in `rag-prompt.md`:
+  - `POST /api/rag/upload`: Direct file ingest.
+  - `POST /api/rag/chat`: Performs RAG completion (grounded question answering).
+  - `DELETE /api/rag/documents/{document_id}`: Standard deletion hook.
+- Mounts routes in `backend/app/main.py` under prefix `/api/rag`.
+
+#### [MODIFY] [admin.py](file:///d:/Nisarg.Doc/Skaps/chatbot/backend/app/routes/admin.py)
+- Automatically triggers `ingest_document` in a background thread upon file upload in `POST /api/admin/documents/upload` to seamlessly index documents inside Qdrant.
+- Automatically calls `delete_document_chunks` upon document deletion in `DELETE /api/admin/documents/{doc_id}` to keep Qdrant synced with PostgreSQL!
+
+---
+
+### Component 5: Frontend UI Enhancements
+
+#### [MODIFY] [src/lib/api.ts](file:///d:/Nisarg.Doc/Skaps/chatbot/src/lib/api.ts)
+- Add interfaces for RAG chat responses and create helper `askRAGQuestion(...)` targeting `/api/rag/chat`.
+
+#### [MODIFY] [src/components/ChatInput.tsx](file:///d:/Nisarg.Doc/Skaps/chatbot/src/components/ChatInput.tsx)
+- Insert a premium, sleek switch/toggle: "Ask from documents" with an aesthetic file-search icon.
+- When active, stores a local `isRagMode` state, which is passed up via `onSendMessage`.
+
+#### [MODIFY] [src/app/page.tsx](file:///d:/Nisarg.Doc/Skaps/chatbot/src/app/page.tsx)
+- Update `handleSendMessage` to redirect request calls to `/api/rag/chat` when RAG mode is active.
+- Read real-time streamed tokens (or RAG JSON blocks) and render citations correctly.
+
+#### [MODIFY] [src/components/MessageBubble.tsx](file:///d:/Nisarg.Doc/Skaps/chatbot/src/components/MessageBubble.tsx)
+- Render custom "Sources Citations" grids below bot responses when RAG answers are generated. Let's make it look premium with neat, small hoverable cards detailing the document name, chunk index, and semantic relevance score!
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- Build verification tests to verify extraction of PDF/DOCX/TXT text files.
+- Test endpoint semantic search accuracy against local Qdrant collection.
+- Compilation check: `npx tsc --noEmit` and `python -m py_compile ...`.
+
+### Manual Verification
+- Upload test documents (e.g. HR policies, export rules) via the admin panel.
+- Confirm processing status transitions from "processing" -> "completed", and embedding status from "pending" -> "embedded".
+- In the chat interface, toggle "Ask from documents" mode.
+- Ask questions grounded in the test document and verify citations are rendered beautifully.

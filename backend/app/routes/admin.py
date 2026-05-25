@@ -2,7 +2,7 @@
 Admin API Router
 Provides all endpoints for the admin dashboard.
 """
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
 from sqlalchemy.orm import Session
@@ -20,6 +20,8 @@ from app.models.chat import ChatSession, ChatMessage, ChatAttachment
 from app.models.settings import UserSettings
 from app.models.admin import Workspace, Document, SystemSetting, AuditLog
 from app.models.user_session import UserSession
+from app.services.rag.rag_service import ingest_document
+from app.services.rag.vector_service import delete_document_chunks
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -515,6 +517,7 @@ def get_documents(
 @router.post("/documents/upload")
 async def upload_document(
     request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     workspace_name: str = Form(...),
     uploader_user_id: Optional[int] = Form(None),
@@ -557,6 +560,9 @@ async def upload_document(
     db.commit()
     db.refresh(doc)
 
+    # Queue background task to parse, chunk, embed, and index document
+    background_tasks.add_task(ingest_document, doc.id, db)
+
     return {
         "id": doc.id,
         "file_name": doc.original_file_name,
@@ -570,6 +576,12 @@ def delete_document(doc_id: int, request: Request, db: Session = Depends(get_db)
     doc = db.query(Document).filter(Document.id == doc_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
+
+    # Delete associated chunks from Qdrant vector store
+    try:
+        delete_document_chunks(doc_id)
+    except Exception as e:
+        print(f"Error deleting chunks during admin document deletion: {e}")
 
     doc.processing_status = "deleted"
     doc.updated_at = datetime.utcnow()

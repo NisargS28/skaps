@@ -7,6 +7,7 @@ from app.models import user, chat, settings, user_session
 from app.models import admin as admin_models  # registers Workspace, Document, SystemSetting, AuditLog
 from app.routes import users, chat as chat_routes, settings as settings_routes
 from app.routes import admin as admin_routes
+from app.routes import rag as rag_routes
 import os
 from fastapi.staticfiles import StaticFiles
 
@@ -31,6 +32,7 @@ app.include_router(users.router, prefix="/api")
 app.include_router(chat_routes.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
 app.include_router(admin_routes.router, prefix="/api")
+app.include_router(rag_routes.router, prefix="/api")
 
 app.mount("/uploads", StaticFiles(directory=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "uploads")), name="uploads")
 

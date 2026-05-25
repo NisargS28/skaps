@@ -20,7 +20,7 @@ interface Message {
 interface ChatWindowProps {
   messages: Message[];
   isLoading: boolean;
-  onSendMessage: (text: string, files: File[], model: string) => void;
+  onSendMessage: (text: string, files: File[], model: string, isRagMode?: boolean) => void;
   activeWorkspace: string;
   models?: LLMModel[];
 }

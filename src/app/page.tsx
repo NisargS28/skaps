@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { isAuthenticated, getUser, getToken, logout } from '@/lib/auth';
-import { verifySession, getLLMModels, LLMModel } from '@/lib/api';
+import { verifySession, getLLMModels, LLMModel, Workspace, getWorkspaces } from '@/lib/api';
 import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import ChatWindow from '@/components/ChatWindow';
@@ -20,6 +20,7 @@ interface Message {
   role: "user" | "bot";
   text: string;
   attachments?: Attachment[];
+  sources?: any[];
 }
 
 interface ChatSession {
@@ -40,6 +41,7 @@ export default function Home() {
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [userId, setUserId] = useState<number | null>(null);
   const [availableModels, setAvailableModels] = useState<LLMModel[]>([]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -50,6 +52,14 @@ export default function Home() {
         }
       })
       .catch(err => console.error("Error loading LLM models:", err));
+
+    getWorkspaces()
+      .then(res => {
+        if (Array.isArray(res)) {
+          setWorkspaces(res);
+        }
+      })
+      .catch(err => console.error("Error loading workspaces:", err));
   }, []);
 
   useEffect(() => {
@@ -124,12 +134,26 @@ export default function Home() {
           return res.json();
         })
         .then(data => {
-          setMessages(data.map((m: any) => ({
-            id: m.id.toString(),
-            role: m.role,
-            text: m.content,
-            attachments: m.attachments || []
-          })));
+          setMessages(data.map((m: any) => {
+            let text = m.content;
+            let sources = undefined;
+            const citationMatch = text.match(/<!-- CITATIONS: (\[.*?\]) -->/);
+            if (citationMatch) {
+              try {
+                sources = JSON.parse(citationMatch[1]);
+                text = text.replace(/<!-- CITATIONS: (\[.*?\]) -->/, "").trim();
+              } catch (e) {
+                console.error("Error parsing citations from message:", e);
+              }
+            }
+            return {
+              id: m.id.toString(),
+              role: m.role,
+              text: text,
+              attachments: m.attachments || [],
+              sources: sources
+            };
+          }));
         })
         .catch(err => {
           console.error("Error fetching messages:", err);
@@ -172,7 +196,7 @@ export default function Home() {
     }
   };
 
-  const handleSendMessage = async (text: string, files: File[] = [], model: string = 'gpt') => {
+  const handleSendMessage = async (text: string, files: File[] = [], model: string = 'gpt', isRagMode = false) => {
     if (!userId) return;
 
     try {
@@ -191,6 +215,66 @@ export default function Home() {
       }
 
       const tempUserId = Date.now().toString();
+
+      if (isRagMode) {
+        // Optimistically add user message
+        setMessages(prev => [...prev, { id: tempUserId, role: "user", text }]);
+        setIsLoading(true);
+
+        // 1. Get the workspace object to obtain workspace ID
+        const activeWorkspaceObj = workspaces.find(w => w.name === activeWorkspace);
+        const workspaceId = activeWorkspaceObj ? activeWorkspaceObj.id : 1;
+
+        // 2. Call /api/rag/chat
+        const ragRes = await fetch(`http://localhost:8000/api/rag/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: text, selectedModel: model, workspaceId })
+        });
+
+        if (!ragRes.ok) {
+          const errData = await ragRes.json().catch(() => ({}));
+          throw new Error(errData.detail || "RAG query failed");
+        }
+
+        const ragData = await ragRes.json();
+
+        // 3. Save User message in DB
+        const userMsgSave = await fetch(`http://localhost:8000/api/chat/sessions/${currentSessionId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'user', content: text, model })
+        });
+        const savedUserMsg = await userMsgSave.json();
+
+        // 4. Save Bot message with citations in DB
+        const citationString = `\n\n<!-- CITATIONS: ${JSON.stringify(ragData.sources)} -->`;
+        const botMsgSave = await fetch(`http://localhost:8000/api/chat/sessions/${currentSessionId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'bot', content: ragData.answer + citationString, model })
+        });
+        const savedBotMsg = await botMsgSave.json();
+
+        // 5. Update state with saved messages and RAG sources
+        setMessages(prev => prev.map(m => m.id === tempUserId ? {
+          id: savedUserMsg.id.toString(),
+          role: "user",
+          text: savedUserMsg.content
+        } : m));
+
+        setMessages(prev => [...prev, {
+          id: savedBotMsg.id.toString(),
+          role: "bot",
+          text: ragData.answer,
+          sources: ragData.sources
+        }]);
+
+        setIsLoading(false);
+        if (!activeSessionId) loadSessions();
+        return;
+      }
+
       // Optimistically add message with local file objects mapped to the Attachment interface format
       const tempAttachments = files.map((f, i) => ({
         id: `temp-${i}`,

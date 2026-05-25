@@ -402,3 +402,35 @@ export async function getLLMModels(): Promise<LLMModelsResponse> {
   return r.json();
 }
 
+export interface RAGSource {
+  fileName: string;
+  documentId: number;
+  chunkIndex: number;
+  score: number;
+}
+
+export interface RAGResponse {
+  answer: string;
+  model: string;
+  sources: RAGSource[];
+}
+
+export async function askRAGQuestion(
+  question: string,
+  selectedModel: string,
+  workspaceId: number
+): Promise<RAGResponse> {
+  const response = await fetch(`${API_BASE}/rag/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, selectedModel, workspaceId }),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.detail || 'RAG Request failed');
+  }
+
+  return response.json();
+}
+
